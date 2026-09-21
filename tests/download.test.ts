@@ -23,8 +23,37 @@ describe('parseDataUrl', () => {
     expect(result.ext).toBe('webp');
   });
 
+  it('should parse subtypes that contain a plus sign', () => {
+    const result = parseDataUrl('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=');
+    expect(result.mime).toBe('image/svg+xml');
+    expect(result.base64).toBe('PHN2Zz48L3N2Zz4=');
+    expect(result.ext).toBe('svg');
+  });
+
+  it('should accept uppercase types and extra parameters', () => {
+    const uppercase = parseDataUrl('data:IMAGE/PNG;BASE64,AAAA');
+    expect(uppercase.mime).toBe('image/png');
+    expect(uppercase.base64).toBe('AAAA');
+
+    const withCharset = parseDataUrl('data:image/png;charset=utf-8;base64,AAAA');
+    expect(withCharset.mime).toBe('image/png');
+    expect(withCharset.base64).toBe('AAAA');
+  });
+
+  it('should keep commas that belong to the payload', () => {
+    expect(parseDataUrl('data:image/png;base64,AA,BB').base64).toBe('AA,BB');
+  });
+
   it('should throw on invalid data URL', () => {
     expect(() => parseDataUrl('not-a-data-url')).toThrow('Invalid data URL');
+  });
+
+  it('should throw on a non-image data URL', () => {
+    expect(() => parseDataUrl('data:text/plain;base64,SGk=')).toThrow(/Unsupported data URL type/);
+  });
+
+  it('should throw when the payload is not base64 encoded', () => {
+    expect(() => parseDataUrl('data:image/svg+xml,<svg></svg>')).toThrow(/expected base64/);
   });
 });
 
@@ -60,5 +89,21 @@ describe('sanitizeFilename', () => {
   it('should keep normal names unchanged', () => {
     expect(sanitizeFilename('My Character')).toBe('My Character');
     expect(sanitizeFilename('char_123')).toBe('char_123');
+  });
+
+  it('should replace names that Windows reserves', () => {
+    expect(sanitizeFilename('CON')).toBe('character');
+    expect(sanitizeFilename('nul.png')).toBe('character');
+    expect(sanitizeFilename('lpt1')).toBe('character');
+  });
+
+  it('should strip trailing dots and control characters', () => {
+    expect(sanitizeFilename('Character...')).toBe('Character');
+    expect(sanitizeFilename('Char\u0000acter')).toBe('Character');
+    expect(sanitizeFilename('Character. ')).toBe('Character');
+  });
+
+  it('should not mangle dots inside a name', () => {
+    expect(sanitizeFilename('v1.2.3')).toBe('v1.2.3');
   });
 });

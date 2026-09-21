@@ -1,6 +1,8 @@
 <script lang="ts">
   import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany } from './db';
   import type { Character } from './types';
+  import { generateId } from './id';
+  import { measureImage } from './image';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
 
@@ -10,33 +12,24 @@
   let showForm = $state(false);
   let loading = $state(true);
 
-  function generateId(): string {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
-  }
-
-  async function measureImage(src: string): Promise<{ width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => reject(new Error('Failed to load image for measurement'));
-      img.src = src;
-    });
-  }
-
   async function backfillDimensions() {
     if (!db) return;
     const needsBackfill = characters.filter((c) => !c.width || !c.height);
-    if (needsBackfill.length === 0) return;
 
     for (const char of needsBackfill) {
       try {
         const { width, height } = await measureImage(char.image);
-        const updated = { ...char, width, height };
+
+        // The list can change while the image decodes, so re-read the record and
+        // leave it alone if it was edited or deleted in the meantime.
+        const current = characters.find((c) => c.id === char.id);
+        if (!current || current.image !== char.image) continue;
+
+        const updated = { ...current, width, height };
         await dbAdd(db, updated);
-        // Update in-memory array
-        const idx = characters.findIndex((c) => c.id === char.id);
-        if (idx !== -1) {
-          characters[idx] = updated;
+        const index = characters.findIndex((c) => c.id === char.id);
+        if (index !== -1) {
+          characters[index] = updated;
         }
       } catch (e) {
         console.warn(`Failed to measure dimensions for ${char.name}:`, e);
@@ -49,11 +42,15 @@
     characters = await dbGetAll<Character>(db);
     loading = false;
     // Backfill dimensions for legacy records
-    backfillDimensions();
+    void backfillDimensions();
   }
 
   async function handleSave(data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) {
     if (!db) return;
+
+    // Editing a character must keep its original creation time, otherwise saving
+    // an edit would reorder the gallery.
+    const existing = data.id ? characters.find((c) => c.id === data.id) : undefined;
 
     const character: Character = {
       id: data.id ?? generateId(),
@@ -62,7 +59,7 @@
       image: data.image,
       width: data.width,
       height: data.height,
-      createdAt: Date.now(),
+      createdAt: existing?.createdAt ?? Date.now(),
     };
 
     await dbAdd(db, character);
@@ -103,6 +100,7 @@
       await loadCharacters();
     } catch (error) {
       console.error('Failed to initialize database:', error);
+      loading = false;
       alert('Failed to initialize the gallery. Please refresh.');
     }
   }
@@ -126,11 +124,13 @@
 
   <main class="px-4 py-8 sm:px-6 lg:px-10">
     {#if showForm}
-      <CharacterForm
-        editingCharacter={editingCharacter}
-        onSave={handleSave}
-        onCancel={() => { showForm = false; editingCharacter = null; }}
-      />
+      {#key editingCharacter?.id ?? 'new'}
+        <CharacterForm
+          editingCharacter={editingCharacter}
+          onSave={handleSave}
+          onCancel={() => { showForm = false; editingCharacter = null; }}
+        />
+      {/key}
     {:else if loading}
       <p class="text-center text-zinc-400 py-12">Loading...</p>
     {:else}

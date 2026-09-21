@@ -1,73 +1,118 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Character } from '../types';
+  import { measureImage } from '../image';
 
   let { editingCharacter, onSave, onCancel }: {
     editingCharacter: Character | null;
-    onSave: (character: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => void;
+    onSave: (character: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => Promise<void>;
     onCancel: () => void;
   } = $props();
 
-  let name = $state(editingCharacter?.name ?? '');
-  let description = $state(editingCharacter?.description ?? '');
-  let imagePreview = $state(editingCharacter?.image ?? '');
-  let selectedFile: File | null = $state(null);
-  let imageWidth = $state<number | undefined>(editingCharacter?.width);
-  let imageHeight = $state<number | undefined>(editingCharacter?.height);
+  // App mounts a new form for each add or edit ({#key}), so the prop values are
+  // used as starting values on purpose. untrack marks that intent.
+  let name = $state(untrack(() => editingCharacter?.name ?? ''));
+  let description = $state(untrack(() => editingCharacter?.description ?? ''));
+  let imagePreview = $state(untrack(() => editingCharacter?.image ?? ''));
+  let saving = $state(false);
 
-  function handleFileSelect(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      selectedFile = input.files[0];
+  // Intrinsic size of `imagePreview`, together with the data URL it was measured
+  // from. The record must never store dimensions that belong to another image.
+  let measured = $state<{ src: string; width: number; height: number } | null>(
+    untrack(() =>
+      editingCharacter?.width && editingCharacter?.height
+        ? {
+            src: editingCharacter.image,
+            width: editingCharacter.width,
+            height: editingCharacter.height,
+          }
+        : null
+    )
+  );
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        imagePreview = reader.result as string;
-        // Capture intrinsic dimensions
-        const img = new Image();
-        img.onload = () => {
-          imageWidth = img.naturalWidth;
-          imageHeight = img.naturalHeight;
-        };
-        img.src = imagePreview;
-      };
-      reader.readAsDataURL(selectedFile);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFileSelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      imagePreview = dataUrl;
+      measured = null;
+
+      try {
+        const size = await measureImage(dataUrl);
+        // Another file can be picked while this one decodes.
+        if (imagePreview === dataUrl) {
+          measured = { src: dataUrl, ...size };
+        }
+      } catch {
+        // The form still saves. App backfills missing dimensions later.
+      }
+    } catch (error) {
+      console.error('Failed to read the selected file:', error);
+      alert('Could not read the selected image.');
+    }
+  }
+
+  /** Dimensions to store for `image`, measuring it if that has not happened yet. */
+  async function resolveDimensions(image: string) {
+    if (measured?.src === image) {
+      return { width: measured.width, height: measured.height };
+    }
+
+    try {
+      const size = await measureImage(image);
+      return { width: size.width, height: size.height };
+    } catch {
+      return { width: undefined, height: undefined };
     }
   }
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
+    if (saving) return;
 
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       alert('Name is required');
       return;
     }
 
-    let image = imagePreview;
-    if (selectedFile !== null) {
-      try {
-        const reader = new FileReader();
-        const result = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(selectedFile!);
-        });
-        image = result;
-      } catch (error) {
-        alert('Error reading image file');
-        return;
-      }
-    } else if (!editingCharacter) {
+    // A new character needs an image. An existing one keeps the stored image
+    // when the user does not pick a replacement.
+    const image = imagePreview;
+    if (!image) {
       alert('Image is required for new characters');
       return;
     }
 
-    onSave({
-      id: editingCharacter?.id,
-      name: name.trim(),
-      description: description.trim(),
-      image,
-      width: imageWidth,
-      height: imageHeight,
-    });
+    saving = true;
+    try {
+      const { width, height } = await resolveDimensions(image);
+      await onSave({
+        id: editingCharacter?.id,
+        name: trimmedName,
+        description: description.trim(),
+        image,
+        width,
+        height,
+      });
+    } catch (error) {
+      console.error('Failed to save the character:', error);
+      alert('Could not save the character. The browser storage may be full.');
+    } finally {
+      saving = false;
+    }
   }
 </script>
 
@@ -98,24 +143,34 @@
       ></textarea>
     </div>
     <div class="mb-4">
-      <label for="char-image" class="mb-1 block font-medium">Image (PNG) *</label>
+      <label for="char-image" class="mb-1 block font-medium">
+        Image (PNG, JPEG, or WebP){editingCharacter ? '' : ' *'}
+      </label>
       <input
         type="file"
         id="char-image"
-        accept=".png,.jpg,.jpeg,.webp"
+        accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
         onchange={handleFileSelect}
         class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover"
       />
+      <p class="mt-1 text-xs text-zinc-500">
+        Downloads are converted to PNG. Large files use more browser storage.
+      </p>
     </div>
     {#if imagePreview}
-      <img src={imagePreview} alt="Image preview" class="mt-3 block max-w-[200px] rounded-lg" />
+      <img
+        src={imagePreview}
+        alt="Preview of the selected character"
+        class="mt-3 block max-w-[200px] rounded-lg"
+      />
     {/if}
     <div class="mt-6 flex gap-3">
       <button
         type="submit"
-        class="rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        disabled={saving}
+        class="rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
       >
-        Save
+        {saving ? 'Saving...' : 'Save'}
       </button>
       <button
         type="button"

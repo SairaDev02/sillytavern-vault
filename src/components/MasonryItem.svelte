@@ -48,7 +48,7 @@
       />
 
       <span
-        class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 pt-12 opacity-0 transition-opacity duration-200 motion-safe:group-hover:opacity-100 motion-safe:group-focus-within:opacity-100"
+        class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 pt-12 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
         aria-hidden="true"
       >
         <span class="block text-sm font-medium text-white">{character.name}</span>
@@ -72,7 +72,7 @@
     <button
       type="button"
       onclick={handleDownloadClick}
-      class="absolute top-2 right-2 z-10 rounded-lg bg-black/50 p-2 text-white opacity-0 transition-opacity duration-200 motion-safe:group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50"
+      class="absolute top-2 right-2 z-10 rounded-lg bg-black/50 p-2 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
       aria-label={`Download ${character.name}`}
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
