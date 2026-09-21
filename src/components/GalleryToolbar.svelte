@@ -1,9 +1,11 @@
 <script lang="ts">
+  import type { SortMode } from '../gallery-utils';
+
   let { searchTerm, sortMode, onSearchChange, onSortChange, selectMode = false, selectedCount = 0, onToggleSelectMode, onDeleteSelected, onCancelSelect }: {
     searchTerm: string;
-    sortMode: 'newest' | 'oldest' | 'name';
+    sortMode: SortMode;
     onSearchChange: (term: string) => void;
-    onSortChange: (mode: 'newest' | 'oldest' | 'name') => void;
+    onSortChange: (mode: SortMode) => void;
     selectMode?: boolean;
     selectedCount?: number;
     onToggleSelectMode?: () => void;
@@ -47,7 +49,7 @@
 
     <select
       value={sortMode}
-      onchange={(e) => onSortChange((e.target as HTMLSelectElement).value as 'newest' | 'oldest' | 'name')}
+      onchange={(e) => onSortChange((e.target as HTMLSelectElement).value as SortMode)}
       class="rounded-lg border border-border bg-bg-secondary px-4 py-2 text-zinc-200 focus:border-accent focus:outline-none"
     >
       <option value="newest">Newest first</option>

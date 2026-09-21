@@ -2,6 +2,7 @@
 
   import type { Character } from '../types';
   import { downloadCharacterImage } from '../download';
+  import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
   import GalleryToolbar from './GalleryToolbar.svelte';
   import MasonryGrid from './MasonryGrid.svelte';
   import Lightbox from './Lightbox.svelte';
@@ -15,7 +16,7 @@
 
   // Search and sort state
   let searchTerm = $state('');
-  let sortMode = $state<'newest' | 'oldest' | 'name'>('newest');
+  let sortMode = $state<SortMode>('newest');
 
   // Selected character for lightbox
   let selectedCharacter: Character | null = $state(null);
@@ -25,38 +26,46 @@
   let selectedIds: string[] = $state([]);
 
   // Incremental loading
-  let visibleCount = $state(24);
-  let sentinelEl: HTMLDivElement | undefined;
-  let observer: IntersectionObserver | null = null;
+  let visibleCount = $state(PAGE_SIZE);
+  let sentinelEl = $state<HTMLDivElement | undefined>(undefined);
 
   // Filter and sort derived
-  let filteredCharacters = $derived.by(() => {
-    let result = characters;
-
-    if (searchTerm.trim()) {
-      const term = searchTerm.trim().toLowerCase();
-      result = result.filter((c) =>
-        c.name.toLowerCase().includes(term) ||
-        c.description.toLowerCase().includes(term)
-      );
-    }
-
-    return [...result].sort((a, b) => {
-      if (sortMode === 'newest') return b.createdAt - a.createdAt;
-      if (sortMode === 'oldest') return a.createdAt - b.createdAt;
-      return a.name.localeCompare(b.name);
-    });
-  });
+  let filteredCharacters = $derived(
+    filterAndSortCharacters(characters, searchTerm, sortMode)
+  );
 
   let visibleCharacters = $derived(filteredCharacters.slice(0, visibleCount));
+  let hasMore = $derived(visibleCount < filteredCharacters.length);
+
+  // Watch the sentinel whenever it exists. `sentinelEl` is state, so this effect
+  // re-runs when the sentinel is added, recreated, or removed. That matters:
+  // the sentinel appears only once a page is full, which can happen long after
+  // mount, and a fresh element needs a fresh observer.
+  $effect(() => {
+    const sentinel = sentinelEl;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          visibleCount = Math.min(visibleCount + PAGE_SIZE, filteredCharacters.length);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
 
   function handleSearchChange(term: string) {
     searchTerm = term;
-    visibleCount = 24; // Reset pagination on search
+    visibleCount = PAGE_SIZE; // Reset pagination on search
   }
 
-  function handleSortChange(mode: 'newest' | 'oldest' | 'name') {
+  function handleSortChange(mode: SortMode) {
     sortMode = mode;
+    visibleCount = PAGE_SIZE; // The first page of a new order starts at the top
   }
 
   function openCharacter(id: string) {
@@ -105,23 +114,6 @@
       console.error('Download failed:', err);
     });
   }
-
-  // Set up IntersectionObserver for incremental loading
-  $effect(() => {
-    if (observer) {
-      observer.disconnect();
-    }
-
-    if (!sentinelEl) return;
-
-    observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && visibleCount < filteredCharacters.length) {
-        visibleCount += 24;
-      }
-    }, { threshold: 0.1 });
-
-    observer.observe(sentinelEl);
-  });
 </script>
 
 <GalleryToolbar
@@ -146,7 +138,7 @@
   onDownload={handleDownload}
 />
 
-{#if visibleCount < filteredCharacters.length}
+{#if hasMore}
   <div bind:this={sentinelEl} class="py-8 text-center">
     <span class="text-zinc-500">Loading more...</span>
   </div>
