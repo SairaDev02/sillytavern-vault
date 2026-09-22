@@ -13,6 +13,18 @@ updates:
       include: scope
     labels:
       - dependencies
+    # These three majors are coupled by peer ranges, so Dependabot cannot bump them
+    # one at a time: `npm ci` fails with ERESOLVE before any check runs.
+    #   vite 8                        <-> @sveltejs/vite-plugin-svelte 7 (each peers the other)
+    #   typescript 7                  -> outside the peer range of svelte-check 4.7.6
+    # Remove an entry when the pair is migrated in one deliberate pull request.
+    ignore:
+      - dependency-name: vite
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@sveltejs/vite-plugin-svelte'
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
