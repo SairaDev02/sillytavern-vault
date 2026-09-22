@@ -12,6 +12,7 @@ Facts below are verified against the current `HEAD`. When this file and the code
 
 ```bash
 npm install            # once
+npm start              # build if dist/ is stale, serve it on :4173, open the browser
 npm run dev            # Vite dev server, http://localhost:5173
 npm test               # vitest run, all files
 npx vitest run tests/gallery-scroll.test.ts   # one file
@@ -27,7 +28,7 @@ Definition of done for a code change:
 3. `npm run build` succeeds.
 4. The matching document is updated.
 
-No CI, no linter, no formatter. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
+No CI gate to hide behind locally, and no linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands on Node 22 and 24 for every push and pull request, so a local failure becomes a red pull request. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
 
 ---
 

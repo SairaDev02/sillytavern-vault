@@ -2,11 +2,42 @@
   "name": "character-gallery",
   "private": true,
   "version": "1.0.0",
+  "description": "Local-first character card gallery. A browser-only Svelte 5 + Vite app with a masonry gallery, search, sort, lightbox, batch delete, and image export. Data stays in the browser.",
+  "license": "Apache-2.0",
+  "author": "SairaDev02",
+  "homepage": "https://github.com/SairaDev02/sillytavern-vault#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SairaDev02/sillytavern-vault.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SairaDev02/sillytavern-vault/issues"
+  },
+  "keywords": [
+    "svelte",
+    "svelte5",
+    "vite",
+    "tailwindcss",
+    "typescript",
+    "indexeddb",
+    "gallery",
+    "masonry",
+    "character-cards",
+    "sillytavern",
+    "local-first",
+    "offline",
+    "spa"
+  ],
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "start": "node scripts/start.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "start:dev": "node scripts/start.mjs --dev",
     "check": "svelte-check",
     "check:watch": "svelte-check --watch",
     "test": "vitest run",

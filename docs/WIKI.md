@@ -12,11 +12,13 @@ The app has no backend. It has no runtime dependencies. All entries in `devDepen
 
 ## 2. Quick Start
 
-Requirements: Node.js 18 or newer and npm.
+Requirements: Node.js 20 or newer and npm. Version 22 LTS is recommended, and `.nvmrc` records it. Node.js is a build-time requirement only. The built app is static files.
 
 | Command | Action |
 |---|---|
 | `npm install` | Install the dependencies. |
+| `npm start` | Build the bundle if `dist/` is stale, serve it on port 4173, and open the browser. |
+| `npm run start:dev` | Start the Vite development server through the launcher. |
 | `npm run dev` | Start the Vite development server on port 5173. |
 | `npm run build` | Build the production bundle into `dist/`. This command does not type-check. |
 | `npm run preview` | Serve the built bundle. |
@@ -26,7 +28,9 @@ Requirements: Node.js 18 or newer and npm.
 | `npm run test:watch` | Run the tests in watch mode. |
 | `npm run test:ui` | Open the Vitest user interface. |
 
-Run `npm run check` and `npm test` before you commit. The repository has no CI and no linter, so these two commands are the gate.
+Run `npm run check`, `npm test`, and `npm run build` before you push. Continuous integration runs the same three commands on every push to `main` and every pull request, on Node 22 and Node 24. See `.github/workflows/ci.yml`. The repository has no linter and no formatter, so these commands are the gate.
+
+The launcher in `scripts/start.mjs` takes `--dev`, `--port <n>`, `--host`, `--force`, `--no-build`, `--no-open`, and `--help`. On Windows, `start.cmd` does the same from a double click.
 
 To reset the local data, open the browser devtools, go to **Application > IndexedDB**, and delete the `character-gallery` database. You can also run `indexedDB.deleteDatabase('character-gallery')` in the console.
 
@@ -98,7 +102,14 @@ Rules of the design:
 | `src/components/Lightbox.svelte` | Detail dialog with keyboard and button navigation. |
 | `src/components/CharacterForm.svelte` | Add and edit form. |
 | `tests/` | Vitest files and helpers. See section 11. |
+| `scripts/start.mjs` | The `npm start` launcher. It checks the age of `dist/`, builds when needed, and serves the result. |
+| `start.cmd` | Double-click launcher for Windows. It installs dependencies on the first run. |
 | `docs/` | This wiki, the LLM wiki, the layout design, and the writing rules. |
+| `README.md` | The public entry point. Features, setup, and the data model in plain terms. |
+| `LICENSE`, `NOTICE` | The Apache-2.0 license and the attribution file. |
+| `CONTRIBUTING.md` | Setup, conventions, the commit format, and the pull request process. |
+| `CHANGELOG.md` | Release history in Keep a Changelog form. |
+| `.github/` | CI, CodeQL, dependency review, Dependabot, and the issue and pull request templates. |
 
 ## 6. Data Model
 
@@ -407,7 +418,9 @@ Notes:
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
 
-`npm run build` writes `dist/index.html`, `dist/assets/*.css`, and `dist/assets/*.js`. The build does not run the type check. Run `npm run check` first, or add the check to your own workflow.
+`npm run build` writes `dist/index.html`, `dist/assets/*.css`, and `dist/assets/*.js`. The build does not run the type check. Run `npm run check` first, or run `npm start`, which builds on demand and then serves the result.
+
+Continuous integration runs the check, the tests, and the build on Node 22 and 24 for every push and pull request. It also uploads the bundle as a build artifact. CodeQL and dependency review run on pull requests.
 
 ## 15. Extension Recipes
 
@@ -464,7 +477,7 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 - The list animation cost grows with the number of rendered cards. The default page size limits the effect.
 - The app has no import or export for character cards. A library cannot move between browser profiles.
 - The database connection stays open for the lifetime of the page. This behavior is correct for a single-page app. A future schema change in another tab waits for the reload.
-- The repository has no CI, no linter, and no formatter. Run `npm run check` and `npm test` by hand.
+- The repository has no linter and no formatter. Continuous integration runs `npm run check`, `npm test`, and `npm run build`. Run the same commands by hand before you push.
 - `--color-bg-card` is declared but unused.
 
 ## 18. Documentation Map
@@ -475,5 +488,8 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 | `docs/LLM-WIKI.md` | Coding agents | The file map, the invariants, or the commands change. |
 | `docs/designMasonry.md` | Developers | The layout strategy or the animation model changes. |
 | `docs/ASD-STE100-LLM-Writing-Rules.md` | Writers | Rarely. It is the style reference for the other documents. |
+| `README.md` | Users and newcomers | The features, the setup steps, or the command line changes. |
+| `CONTRIBUTING.md` | Contributors | The checks, the conventions, or the pull request process changes. |
+| `CHANGELOG.md` | Users | A release is prepared. Add the entries before you tag it. |
 
 When you change the code, change the matching document in the same commit. The wiki described an old implementation for a long time, because nothing tied the two together.

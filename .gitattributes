@@ -1,0 +1,22 @@
+* text=auto eol=lf
+
+# Windows batch files must keep CRLF line endings to run correctly.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets must never be converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# The lockfile is generated. Collapse it in diffs and language statistics.
+package-lock.json linguist-generated=true
+
+# Developer documentation is prose, not application code.
+docs/*.md linguist-documentation=true
