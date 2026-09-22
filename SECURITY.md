@@ -11,12 +11,16 @@
 
 **Do not open a public issue for a security problem.**
 
-Use one of these private channels:
+Report it through GitHub private vulnerability reporting. Open the
+[Security tab](https://github.com/SairaDev02/sillytavern-vault/security) and choose
+*Report a vulnerability*, or go straight to the
+[confidential report form](https://github.com/SairaDev02/sillytavern-vault/security/advisories/new).
 
-1. **GitHub private vulnerability reporting** — open the [Security tab](https://github.com/SairaDev02/sillytavern-vault/security)
-   and choose *Report a vulnerability*. This is the preferred channel, because it
-   keeps the discussion private and tracks the fix.
-2. **Email** — 96645098+sairadev02@users.noreply.github.com. Put `SECURITY` in the subject line.
+This is the only supported channel. It keeps the discussion private, tracks the
+fix in one place, and needs no personal contact details from either side.
+
+If you cannot use GitHub, open a public issue that contains **no details of the
+problem** and ask the maintainer to arrange a private channel.
 
 Include what you can:
 
