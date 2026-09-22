@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/SairaDev02/sillytavern-vault/security/advisories/new
+    about: Report security problems privately. Do not open a public issue.
+  - name: Read the contributing guide
+    url: https://github.com/SairaDev02/sillytavern-vault/blob/main/CONTRIBUTING.md
+    about: Setup, checks, commit conventions, and the pull request process.
+  - name: Read the developer wiki
+    url: https://github.com/SairaDev02/sillytavern-vault/blob/main/docs/WIKI.md
+    about: How the codebase fits together before you change it.

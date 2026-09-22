@@ -1,0 +1,95 @@
+name: Bug report
+description: Report something that does not work as documented.
+title: 'bug: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before you file it, search the existing issues to
+        avoid a duplicate.
+
+        If this is a security problem, stop here and follow
+        [SECURITY.md](https://github.com/SairaDev02/sillytavern-vault/blob/main/SECURITY.md)
+        instead. Do not report security issues in a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the problem, and what you expected instead.
+      placeholder: |
+        I clicked Delete Selected, and the app removed every card, not only the
+        selected ones. I expected it to remove the three selected cards.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps, in order. A minimal reproduction is the most useful thing you can provide.
+      placeholder: |
+        1. Run `npm start`
+        2. Add two characters with images
+        3. Enter select mode and select one card
+        4. Click Delete Selected
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data-loss
+    attributes:
+      label: Did this lose or corrupt data?
+      description: IndexedDB data cannot be recovered, so data loss is always a priority.
+      options:
+        - 'No'
+        - 'Yes — cards were lost or damaged'
+        - 'Not sure'
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag, or the output of `git rev-parse --short HEAD`.
+      placeholder: v1.0.0 or 05c86cb
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 141 on Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Run `node --version`. Leave this blank if the problem happens in a deployed copy.
+      placeholder: v22.14.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: Paste any error from the browser developer console or the terminal.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: I reproduced this on the latest `main`, or on the latest release.
+          required: true

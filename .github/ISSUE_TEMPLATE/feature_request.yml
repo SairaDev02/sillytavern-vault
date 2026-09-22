@@ -1,0 +1,73 @@
+name: Feature request
+description: Suggest a change or a new capability.
+title: 'feat: '
+labels: ['enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. A clear problem statement is
+        more useful than a detailed design.
+
+        This project has two hard constraints. A feature request that breaks
+        either one is unlikely to be accepted:
+
+        1. **No runtime dependencies.** The app uses browser APIs directly.
+        2. **Local-first.** Nothing the user adds may leave their browser.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: |
+        I keep 400 cards, and I cannot find the ones I added last week, because
+        search only matches names and descriptions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should the app do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other approaches, including workarounds you already use.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Gallery layout or scrolling
+        - Search, sort, or filtering
+        - Add, edit, or delete a card
+        - Lightbox detail view
+        - Image import or export
+        - Storage and persistence
+        - Accessibility
+        - Documentation
+        - Build, test, or tooling
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This works offline, with no network access.
+          required: true
+        - label: This adds no runtime dependency, or I explain below why one is required.
+          required: true
+        - label: I searched the existing issues and found no duplicate.
+          required: true
