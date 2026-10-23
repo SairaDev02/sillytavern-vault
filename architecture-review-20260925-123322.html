@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review for Character Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .schematic { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; }
+      .dashbox { border: 2px dashed #94a3b8; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="mx-auto max-w-5xl space-y-14 px-6 py-12">
+      <header class="border-b border-slate-200 pb-6">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 class="font-serif text-3xl">Architecture review — Character Gallery</h1>
+          <p class="text-sm text-slate-500">2026-09-25 · branch <span class="font-mono">design-consistency</span> · HEAD <span class="font-mono">ddf77c7</span></p>
+        </div>
+        <p class="mt-3 max-w-3xl text-sm text-slate-600">
+          Deepening candidates across the design-consistency surface: <span class="font-mono">App.svelte</span>,
+          <span class="font-mono">src/components/*</span>, and <span class="font-mono">src/*.ts</span>. No <span class="font-mono">CONTEXT.md</span> or ADRs exist yet. Layout and animation decisions in
+          <span class="font-mono">docs/designMasonry.md</span> are treated as pinned and are not re-litigated.
+        </p>
+        <div class="mt-4 flex flex-wrap gap-5 text-xs text-slate-600">
+          <span class="flex items-center gap-2"><span class="inline-block h-4 w-6 border border-slate-400 bg-white"></span> module</span>
+          <span class="flex items-center gap-2"><span class="inline-block h-4 w-6 border border-dashed border-slate-400"></span> seam</span>
+          <span class="flex items-center gap-2"><span class="inline-block h-0.5 w-6 bg-red-600"></span> leakage / duplication</span>
+          <span class="flex items-center gap-2"><span class="deep inline-block h-4 w-6 rounded-sm"></span> deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-14">
+        <!-- ============================= CANDIDATE 1 ============================= -->
+        <article id="c1" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-2xl">1 · Deepen the character store behind a record-lifecycle seam</h2>
+            <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">Strong</span>
+            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">dependency: local-substitutable</span>
+          </div>
+          <p class="mt-3 font-mono text-sm text-slate-500">src/App.svelte:11, 48–67, 73–79, 81–121 · src/db.ts:44–80 · tests/app.test.ts</p>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">before</p>
+              <div class="mt-3 rounded-lg border-2 border-red-300 bg-white p-3">
+                <p class="schematic text-slate-500">App.svelte — root module</p>
+                <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <div class="rounded border border-slate-300 bg-slate-50 p-2">
+                    <p class="schematic text-slate-400">view state</p>
+                    <p class="mt-1">notice · confirm · form · focus</p>
+                  </div>
+                  <div class="dashbox rounded p-2">
+                    <p class="schematic text-slate-400">record policy</p>
+                    <p class="mt-1">id · createdAt · re-read guard · backfill</p>
+                  </div>
+                </div>
+                <div class="ml-3 mt-3 space-y-1 border-l-2 border-dashed border-red-400 pl-3 text-xs">
+                  <div class="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono">openDB(name)</div>
+                  <div class="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono">dbGetAll(db)</div>
+                  <div class="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono">dbAdd(db, record)</div>
+                  <div class="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono">dbDelete(db, id)</div>
+                  <div class="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono">dbDeleteMany(db, ids)</div>
+                </div>
+              </div>
+              <p class="mt-auto pt-3 text-xs text-red-700">Five per-record verbs cross the seam, each behind a null-check. The record rules sit in the root view.</p>
+            </div>
+
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">after</p>
+              <div class="mt-3 rounded border border-slate-300 bg-white p-2 text-center text-xs text-slate-600">
+                App.svelte <span class="text-slate-400">— view state only</span>
+              </div>
+              <div class="ml-6 h-6 border-l-2 border-slate-400"></div>
+              <div class="deep flex-1 rounded-xl p-4 text-slate-100 shadow-lg">
+                <p class="schematic text-slate-300">characterStore — deep</p>
+                <p class="mt-1 text-sm">one record interface: list · save · remove · removeMany · backfill</p>
+                <div class="mt-3 space-y-1 text-xs">
+                  <div class="rounded border border-white/15 bg-white/10 p-2">id generation · createdAt policy</div>
+                  <div class="rounded border border-white/15 bg-white/10 p-2">re-read guard · dimension backfill loop</div>
+                  <div class="rounded border border-white/15 bg-white/10 p-2">connection state, no null-checks at the call site</div>
+                  <div class="dashbox mt-2 rounded border-white/40 p-2 text-slate-300">db.ts — transaction adapter (kept)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-4">
+            <div>
+              <dt class="schematic text-red-700">problem</dt>
+              <dd class="mt-1 text-sm text-slate-700">App.svelte is both the root view and the record-lifecycle module: it reaches across the db.ts seam with five per-record verbs while owning the createdAt, re-read-guard, and backfill invariants, so persistence behaviour can only be tested by mounting the whole root.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-emerald-700">solution</dt>
+              <dd class="mt-1 text-sm text-slate-700">Put a characterStore module at that seam: a small record interface hides connection state, id generation, the createdAt policy, the re-read guard, and the backfill loop, with db.ts kept as the internal transaction adapter.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-slate-500">deletion test</dt>
+              <dd class="mt-1 text-sm text-slate-700"><span class="font-semibold text-emerald-700">Passes.</span> Today the policy already exists inline in App; the store concentrates it. db.ts must stay — deleting it would scatter the transaction plumbing instead.</dd>
+            </div>
+          </dl>
+
+          <div class="mt-6">
+            <p class="schematic text-slate-500">wins</p>
+            <ul class="mt-2 grid gap-x-8 gap-y-1 text-sm text-slate-700 md:grid-cols-2">
+              <li>locality: createdAt rule has one home</li>
+              <li>leverage: App keeps only view state</li>
+              <li>backfill guard tested without mounting App</li>
+              <li>five null-checks leave the view</li>
+              <li>db.ts stays the transaction adapter</li>
+              <li>save / delete / backfill share one seam</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ============================= CANDIDATE 2 ============================= -->
+        <article id="c2" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-2xl">2 · Deepen Gallery's view state behind one view-model seam</h2>
+            <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">dependency: in-process</span>
+          </div>
+          <p class="mt-3 font-mono text-sm text-slate-500">src/components/Gallery.svelte:23–46, 48–66, 69–117, 129–169 · tests/gallery-scroll.test.ts · tests/GalleryHarness.svelte</p>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">before</p>
+              <div class="mt-3 flex flex-1 flex-col gap-1.5">
+                <p class="text-xs font-semibold text-slate-700">Gallery.svelte — state and view together</p>
+                <div class="rounded border border-slate-300 bg-white p-2 text-xs">
+                  <span class="schematic text-slate-400">query</span>
+                  <p class="mt-0.5 text-slate-600">searchTerm · sortMode</p>
+                  <p class="text-red-600">reset written by hand ×2 (lines 71, 76)</p>
+                </div>
+                <div class="dashbox rounded p-2 text-xs">
+                  <span class="schematic text-slate-400">paging</span>
+                  <p class="mt-0.5 text-slate-600">visibleCount · sentinelEl · observer effect</p>
+                  <p class="text-amber-700">documented sharp edge (LLM-WIKI §8)</p>
+                </div>
+                <div class="rounded border border-slate-300 bg-white p-2 text-xs">
+                  <span class="schematic text-slate-400">selection</span>
+                  <p class="mt-0.5 text-slate-600">selectMode · selectedIds</p>
+                </div>
+                <div class="rounded border border-slate-300 bg-white p-2 text-xs">
+                  <span class="schematic text-slate-400">lightbox</span>
+                  <p class="mt-0.5 text-slate-600">selectedCharacter</p>
+                </div>
+                <p class="mt-auto pt-2 text-xs text-red-700">One module, four rule sets; tests cross its seam only through the DOM.</p>
+              </div>
+            </div>
+
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">after</p>
+              <div class="mt-3 flex flex-1 flex-col">
+                <div class="rounded border border-slate-300 bg-white p-3 text-center text-xs text-slate-600">
+                  Gallery.svelte <span class="text-slate-400">— render shell</span>
+                  <p class="mt-1 font-mono text-[11px] text-slate-500">page in → markup out</p>
+                </div>
+                <div class="ml-6 h-1 border-l-2 border-slate-400"></div>
+                <div class="deep flex-1 rounded-xl p-4 text-slate-100 shadow-lg">
+                  <p class="schematic text-slate-300">galleryView — deep</p>
+                  <p class="mt-1 text-sm">query in, visible page out; selection commands in, selection state out</p>
+                  <div class="mt-3 space-y-1 text-xs">
+                    <div class="rounded border border-white/15 bg-white/10 p-2">query + paging reset: one rule</div>
+                    <div class="rounded border border-white/15 bg-white/10 p-2">selection and select-mode lifecycle</div>
+                    <div class="rounded border border-white/15 bg-white/10 p-2">lightbox selection</div>
+                    <div class="rounded border border-white/15 bg-white/10 p-2">sentinel observer ownership</div>
+                  </div>
+                </div>
+                <p class="mt-2 text-xs text-slate-600">Toolbar, Grid, and Lightbox keep their current interfaces.</p>
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-4">
+            <div>
+              <dt class="schematic text-red-700">problem</dt>
+              <dd class="mt-1 text-sm text-slate-700">Gallery.svelte is a view-state module wearing a view's clothes: query, paging, selection, and lightbox state are interleaved, the query–paging reset is written twice by hand, and the observer lifecycle is a documented sharp edge reachable only through the DOM.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-emerald-700">solution</dt>
+              <dd class="mt-1 text-sm text-slate-700">Deepen a galleryView module that owns the four state clusters and their rules behind a command-in / page-out interface; Gallery.svelte keeps markup and child wiring.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-slate-500">deletion test</dt>
+              <dd class="mt-1 text-sm text-slate-700"><span class="font-semibold text-amber-700">Passes, modest gain.</span> The rules reappear verbatim inside Gallery today, so the view model concentrates them — but Gallery remains the only caller, so the leverage is local to that seam.</dd>
+            </div>
+          </dl>
+
+          <div class="mt-6">
+            <p class="schematic text-slate-500">wins</p>
+            <ul class="mt-2 grid gap-x-8 gap-y-1 text-sm text-slate-700 md:grid-cols-2">
+              <li>locality: reset rule, one place</li>
+              <li>selection tested without mounting</li>
+              <li>observer lifecycle behind one seam</li>
+              <li>Gallery becomes a render shell</li>
+              <li>query in, visible page out</li>
+              <li>view rules survive markup refactors</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ============================= CANDIDATE 3 ============================= -->
+        <article id="c3" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-2xl">3 · Deepen the browser-image seam</h2>
+            <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Worth exploring</span>
+            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">dependency: mock</span>
+          </div>
+          <p class="mt-3 font-mono text-sm text-slate-500">src/image.ts:7–13 · src/download.ts:78–108, 113–139 · src/App.svelte:53 · src/components/CharacterForm.svelte · docs/WIKI.md §13</p>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">before</p>
+              <div class="mt-3 grid flex-1 grid-cols-2 gap-3">
+                <div class="flex flex-col rounded border border-slate-300 bg-white p-2 text-xs">
+                  <p class="schematic text-slate-400">image.ts</p>
+                  <p class="mt-1 font-mono text-[11px]">measureImage(src)</p>
+                  <div class="mt-2 rounded border border-red-300 bg-red-50 p-2">
+                    <p class="font-mono text-[11px] text-red-700">Image load</p>
+                    <p class="text-red-700">onload / onerror</p>
+                  </div>
+                  <p class="mt-auto pt-2 text-slate-500">2 callers: App, CharacterForm</p>
+                </div>
+                <div class="flex flex-col rounded border border-slate-300 bg-white p-2 text-xs">
+                  <p class="schematic text-slate-400">download.ts</p>
+                  <p class="mt-1 font-mono text-[11px]">parse · filename · gesture</p>
+                  <div class="mt-2 rounded border border-red-300 bg-red-50 p-2">
+                    <p class="font-mono text-[11px] text-red-700">Image load</p>
+                    <p class="text-red-700">onload / onerror</p>
+                  </div>
+                  <p class="text-slate-600">canvas → toBlob</p>
+                  <p class="mt-auto pt-2 text-amber-700">canvas path untested (WIKI §13)</p>
+                </div>
+              </div>
+              <p class="mt-3 border-t border-dashed border-red-400 pt-2 text-xs text-red-700">One loading mechanism implemented twice; one module carries two concerns and four exports.</p>
+            </div>
+
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">after</p>
+              <div class="mt-3 flex flex-1 flex-col gap-3">
+                <div class="deep rounded-xl p-4 text-slate-100 shadow-lg">
+                  <p class="schematic text-slate-300">image.ts — deep</p>
+                  <p class="mt-1 text-sm">load · measure · convert to PNG blob</p>
+                  <div class="mt-2 space-y-1 text-xs">
+                    <div class="rounded border border-white/15 bg-white/10 p-2">Image lifecycle: one mechanism</div>
+                    <div class="rounded border border-white/15 bg-white/10 p-2">canvas → toBlob, behind the seam</div>
+                  </div>
+                </div>
+                <div class="rounded border border-slate-300 bg-white p-3 text-xs">
+                  <p class="schematic text-slate-400">download.ts</p>
+                  <p class="mt-1">parseDataUrl · sanitizeFilename · download gesture</p>
+                  <p class="mt-1 text-slate-500">pure rules stay node-testable; rendering crosses the seam</p>
+                </div>
+                <p class="mt-auto pt-2 text-xs text-emerald-700">The mechanism gets one adapter slot for the jsdom double.</p>
+              </div>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-4">
+            <div>
+              <dt class="schematic text-red-700">problem</dt>
+              <dd class="mt-1 text-sm text-slate-700">download.ts carries two concerns at once — pure data-URL and filename rules that node tests cover well, and a browser rendering mechanism that duplicates image.ts's Image load dance and whose canvas path no test crosses.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-emerald-700">solution</dt>
+              <dd class="mt-1 text-sm text-slate-700">Deepen image.ts into the one module for browser-image operations (load, measure, convert to a PNG blob) and leave download.ts the parsing, filename, and download gesture; the rendering mechanism sits behind a seam with a test double.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-slate-500">deletion test</dt>
+              <dd class="mt-1 text-sm text-slate-700"><span class="font-semibold text-emerald-700">Passes.</span> Deleting image.ts would send measureImage back to its two callers and leave convertToPng duplicated; the mechanism belongs in one module.</dd>
+            </div>
+          </dl>
+
+          <div class="mt-6">
+            <p class="schematic text-slate-500">wins</p>
+            <ul class="mt-2 grid gap-x-8 gap-y-1 text-sm text-slate-700 md:grid-cols-2">
+              <li>locality: one Image-load mechanism</li>
+              <li>canvas conversion behind a seam</li>
+              <li>pure download rules stay node-testable</li>
+              <li>download.ts interface narrows</li>
+              <li>untested mechanism gains an adapter</li>
+              <li>measure and convert share one home</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ============================= CANDIDATE 4 ============================= -->
+        <article id="c4" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-serif text-2xl">4 · Deepen the feedback seam (notice + confirmation policy)</h2>
+            <span class="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-700">Speculative</span>
+            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">dependency: in-process</span>
+          </div>
+          <p class="mt-3 font-mono text-sm text-slate-500">src/App.svelte:18–45, 105–121, 139, 171 · src/components/ConfirmDialog.svelte · tests/app.test.ts</p>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">before</p>
+              <div class="mt-3 flex-1 rounded-lg border border-slate-300 bg-white p-3">
+                <pre class="mermaid">
+sequenceDiagram
+  participant C as caller (Lightbox)
+  participant A as App.svelte
+  participant D as ConfirmDialog
+  C->>A: onDelete(id)
+  A->>A: askConfirm(message)
+  Note over A: capture focus, new Promise
+  A->>D: open + message
+  D->>A: onDecision(ok)
+  Note over A: resolve, restore focus
+  A->>C: boolean
+                </pre>
+              </div>
+              <p class="mt-3 text-xs text-red-700">The handshake lives as closures in the root module; the policy has no module.</p>
+            </div>
+
+            <div class="flex min-h-[320px] flex-col rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p class="schematic text-slate-500">after</p>
+              <div class="mt-3 flex-1 rounded-lg border border-slate-300 bg-white p-3">
+                <pre class="mermaid">
+sequenceDiagram
+  participant C as caller
+  participant F as feedback
+  participant D as ConfirmDialog (view)
+  C->>F: confirm(message)
+  F->>D: open
+  D->>F: decision(ok)
+  Note over F: focus capture + restore live here
+  F->>C: boolean
+                </pre>
+              </div>
+              <p class="mt-3 text-xs text-emerald-700">The promise cycle and focus rules move behind one small interface; App renders, it does not decide.</p>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-4">
+            <div>
+              <dt class="schematic text-red-700">problem</dt>
+              <dd class="mt-1 text-sm text-slate-700">The notice state and the confirm promise handshake — focus capture, resolution, focus restore — live as closures in the root module, so the policy has no module and its only test surface is the full DOM.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-emerald-700">solution</dt>
+              <dd class="mt-1 text-sm text-slate-700">Deepen a feedback module that owns notice state and the confirm request/decision cycle behind a small interface; App.svelte renders the notice and the ConfirmDialog view from that state.</dd>
+            </div>
+            <div>
+              <dt class="schematic text-slate-500">deletion test</dt>
+              <dd class="mt-1 text-sm text-slate-700"><span class="font-semibold text-slate-600">Passes, narrow.</span> The policy would reappear in App with no other home. Leverage is future-facing until a second dialog or notice site exists, so revisit when the next one lands.</dd>
+            </div>
+          </dl>
+
+          <div class="mt-6">
+            <p class="schematic text-slate-500">wins</p>
+            <ul class="mt-2 grid gap-x-8 gap-y-1 text-sm text-slate-700 md:grid-cols-2">
+              <li>locality: promise handshake, one home</li>
+              <li>focus capture and restore stay put</li>
+              <li>App renders, does not decide</li>
+              <li>second dialog: zero copied handshake</li>
+              <li>notice rule testable without mounting App</li>
+            </ul>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============================= LEAVE ALONE ============================= -->
+      <section id="leave-alone" class="rounded-2xl border border-slate-200 bg-stone-100 p-6">
+        <h2 class="font-serif text-xl">Deliberately deep — leave alone</h2>
+        <p class="mt-1 text-sm text-slate-600">These already earn their keep; the deletion test would scatter real complexity:</p>
+        <ul class="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
+          <li><span class="font-mono text-xs">db.ts</span> — transaction adapter; abort handling is real behaviour, not plumbing.</li>
+          <li><span class="font-mono text-xs">download.ts</span> parse + filename rules — pure, deep, node-testable.</li>
+          <li><span class="font-mono text-xs">Lightbox.svelte</span> — single teardown path through the <span class="font-mono">close</span> event; a documented sharp edge.</li>
+          <li><span class="font-mono text-xs">MasonryGrid.svelte</span> — CSS-column layout and animation gating; pinned by <span class="font-mono">designMasonry.md</span>.</li>
+          <li><span class="font-mono text-xs">CharacterForm.svelte</span> — draft, measurement, and validation behind three props.</li>
+          <li><span class="font-mono text-xs">gallery-utils.ts</span> — pure rules; two callers for the aspect helper, and the repo convention keeps logic out of modules with markup.</li>
+        </ul>
+      </section>
+
+      <!-- ============================= TOP RECOMMENDATION ============================= -->
+      <section id="top-recommendation" class="deep rounded-2xl p-8 text-slate-100 shadow-xl">
+        <p class="schematic text-slate-300">top recommendation</p>
+        <h2 class="mt-1 font-serif text-2xl">Deepen the character store first</h2>
+        <p class="mt-3 max-w-2xl text-sm text-slate-200">
+          It carries the highest-consequence behaviour — the <span class="font-mono">createdAt</span> rule, the re-read guard, and the backfill loop all exist because stale writes caused data loss before — yet it has the heaviest test surface today: a whole-root mount behind fake IndexedDB, fake Image, and FileReader. Moving it behind a record interface concentrates the invariants and lets the suite cross a smaller seam.
+        </p>
+        <a href="#c1" class="mt-4 inline-block rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-300">Jump to candidate 1</a>
+      </section>
+    </main>
+  </body>
+</html>
