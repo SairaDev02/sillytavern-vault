@@ -143,6 +143,17 @@ describe('App', () => {
     expect(stored[0].height).toBe(32);
   });
 
+  it('backfills dimensions for a stored image that has none', async () => {
+    await seedDatabase([makeCharacter(1, { width: undefined, height: undefined })]);
+
+    start();
+    await waitFor(async () => {
+      const stored = await readDatabase();
+      expect(stored[0].width).toBe(64);
+      expect(stored[0].height).toBe(32);
+    });
+  });
+
   it('keeps the creation time when a character is edited', async () => {
     const original = makeCharacter(7, { name: 'Original', createdAt: 1_600_000_000_000 });
     await seedDatabase([original]);

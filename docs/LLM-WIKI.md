@@ -23,7 +23,7 @@ npm run build          # vite build -> dist/ (does NOT type-check)
 
 Definition of done for a code change:
 
-1. `npm test` passes (49 tests, 6 files at the time of writing).
+1. `npm test` passes (79 tests, 8 files at the time of writing).
 2. `npm run check` reports `0 errors and 0 warnings`.
 3. `npm run build` succeeds.
 4. The matching document is updated.
@@ -43,6 +43,7 @@ No CI gate to hide behind locally, and no linter or formatter: run the three com
 | `src/db.ts` | IndexedDB open/add/delete/getAll | Storage behavior |
 | `src/id.ts` | `generateId()` | Id format |
 | `src/image.ts` | `measureImage(src)` | Intrinsic size logic |
+| `src/selected-image.svelte.ts` | `SelectedImage` class: choice ordering, image/dimension pairing, readiness, discard, obsolete-result suppression | Character form image behavior |
 | `src/gallery-utils.ts` | `PAGE_SIZE`, `SortMode`, filter/sort | Search, sort, page size |
 | `src/download.ts` | Data URL parse, PNG conversion, filename, download | Export path |
 | `src/style.css` | Tailwind import + `@theme` color tokens | Colors, theme |
@@ -51,7 +52,7 @@ No CI gate to hide behind locally, and no linter or formatter: run the three com
 | `src/components/MasonryGrid.svelte` | CSS columns, keyed list, flip/fade animation | Layout, animation |
 | `src/components/MasonryItem.svelte` | One card: image, hover label, download, checkbox | Card UI |
 | `src/components/Lightbox.svelte` | `<dialog>` detail view, keyboard + button nav | Detail view |
-| `src/components/CharacterForm.svelte` | Add/edit form, file read, dimension capture | Form behavior |
+| `src/components/CharacterForm.svelte` | Add/edit form, text fields, save gating and locking | Form behavior |
 | `tests/*` | Vitest suites + helpers | Any behavior change |
 | `docs/WIKI.md` | Developer wiki | Before changing architecture |
 
@@ -71,7 +72,8 @@ graph TD
   Gallery --> galleryUtils
   MasonryGrid --> MasonryItem
   MasonryItem --> download
-  CharacterForm --> image
+  CharacterForm --> selectedImage
+  selectedImage --> image
 ```
 
 ---
@@ -98,6 +100,27 @@ export function generateId(): string;   // crypto.randomUUID(), fallback: time36
 
 // src/image.ts
 export function measureImage(src: string): Promise<{ width: number; height: number }>;
+
+// src/selected-image.svelte.ts
+export type PreparationStatus = 'idle' | 'preparing' | 'ready' | 'failed';
+export interface ImageSnapshot { image: string; width?: number; height?: number; }
+export interface SelectedImageDeps {
+  readFile?: (file: File) => Promise<string>;
+  measure?: (src: string) => Promise<{ width: number; height: number }>;
+}
+export class SelectedImage {
+  constructor(initial: ImageSnapshot | null, deps?: SelectedImageDeps);
+  readonly image: string;
+  readonly status: PreparationStatus;
+  readonly error: string | null;
+  readonly warning: string | null;
+  readonly canSubmit: boolean;
+  readonly hasReplacement: boolean;
+  select(file: File): void;
+  discard(): void;
+  snapshot(): ImageSnapshot | null;
+  dispose(): void;
+}
 
 // src/gallery-utils.ts
 export const PAGE_SIZE = 24;
@@ -136,7 +159,7 @@ Component-local state (do not duplicate it in a parent):
 
 - `Gallery`: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore`.
 - `Lightbox`: `dialogEl` (`$state`), `triggerButton`, `toreDown`; derived `index`, `hasPrevious`, `hasNext`.
-- `CharacterForm`: `name`, `description`, `imagePreview`, `saving`, `measured` (`{src,width,height} | null`).
+- `CharacterForm`: `name`, `description`, `saving`, `saveError`, and `preparation` (one `SelectedImage`).
 - `App`: `db`, `characters`, `editingCharacter`, `showForm`, `loading`.
 
 ---
@@ -147,7 +170,9 @@ MUST hold after any change.
 
 1. `Character.id` is the IndexedDB key path (`db.ts`, store `characters`, keyPath `id`). Ids are opaque, unique, and never derived from array position.
 2. `createdAt` is set once. `App.handleSave` copies the stored value when `data.id` matches an existing record. Never write `Date.now()` over an existing record.
-3. `width`/`height` describe `image`. If unknown, leave both `undefined` and let `App.backfillDimensions` measure them. Stale values distort the reserved `aspect-ratio`.
+3. `width`/`height` describe `image`. If unknown, leave both `undefined` and let `App.backfillDimensions` measure them. Stale values distort the reserved `aspect-ratio`. A partial pair is normalized to two absent dimensions.
+   - `SelectedImage` publishes only the current selection. A generation token guards every asynchronous state write; `discard` and `dispose` invalidate outstanding work.
+   - `SelectedImage.status` stays `preparing` until read and measurement settle. `canSubmit` is true only for `idle` or `ready` with a non-empty image. A read failure blocks submission; a measurement failure allows it with both dimensions absent.
 4. `image` is a base64 image data URL. It is required for a new record.
 5. Sort and filter never mutate their input array (`sortCharacters` copies; `filterCharacters` returns the input itself for a blank term).
 6. Filter and sort tolerate records with missing `name` or `description`.
@@ -176,6 +201,7 @@ MUST hold after any change.
 | Column layout or animation | `src/components/MasonryGrid.svelte` | — |
 | Lightbox behavior | `src/components/Lightbox.svelte` | `tests/app.test.ts` |
 | Download or filename | `src/download.ts` | `tests/download.test.ts` |
+| Selected-image preparation or form gating | `src/selected-image.svelte.ts`, `src/components/CharacterForm.svelte` | `tests/selected-image.test.ts`, `tests/character-form.test.ts` |
 | Theme color | `src/style.css` (`@theme` tokens) | — |
 | Id format | `src/id.ts` | `tests/id.test.ts` |
 | Storage semantics | `src/db.ts` | `tests/db.test.ts` |
@@ -192,6 +218,9 @@ Helpers available:
 
 - `tests/fixtures.ts`: `PNG_1X1`, `makeCharacter(index, overrides?)`, `makeCharacters(count, startIndex?)`.
 - `tests/GalleryHarness.svelte`: mounts `Gallery`, exposes `setCharacters(next)`.
+- `tests/selected-image.test.ts`: controlled `readFile` and `measure` promises for the preparation module.
+- `tests/character-form.test.ts`: a controlled `FileReader` and `Image` for the mounted form.
+- A manual real-browser smoke check ran in headless Chrome 156 on Windows against the production build. It covers real file reading and image decoding through programmatic file-input assignment, same-file recovery, and the accessible feedback markup. It does not exercise the native picker dialog or a screen-reader announcement. It is not part of `npm test`; see WIKI section 13.
 - `settle()` pattern (copy from `tests/gallery-scroll.test.ts`): `flushSync()` + `await tick()` in a loop. Use it after any change that starts a transition.
 - `vi.waitFor(fn, { timeout, interval })` for promise-driven UI (database reads, `FileReader`).
 
@@ -233,6 +262,8 @@ Pitfalls:
 | `App.svelte`: backfill re-reads the record and skips when `image` changed | The decode is async; a concurrent edit was previously overwritten by the stale record. |
 | `App.svelte`: `createdAt: existing?.createdAt ?? Date.now()` | Editing previously reset the creation time and reordered the gallery. |
 | `CharacterForm.svelte`: `untrack(() => editingCharacter?.…)` | Deliberate one-time snapshot. `App.svelte` wraps the form in `{#key editingCharacter?.id ?? 'new'}`, so each target gets a fresh instance. |
+| `selected-image.svelte.ts`: generation token checked after every `await` | File reads and image measurement can finish out of order. Without the check, an older read could replace the newer preview or submit the wrong image. Regression: `tests/selected-image.test.ts`, `tests/character-form.test.ts`. |
+| `selected-image.svelte.ts`: a read failure restores the stored preview but keeps `status: 'failed'` | The stored image stays visible for context, but `canSubmit` stays false. This prevents a silent fallback after an explicit replacement choice. |
 | `download.ts`: 60 s `setTimeout` before `revokeObjectURL` | An immediate revoke can cancel the download. |
 | `db.ts`: `tx.onabort` rejection | Aborted transactions fire only `abort`; without it the promise never settles. |
 | `MasonryGrid.svelte`: `matchMedia` read once at component creation | The duration is a construction-time constant; the values only drive `animate:flip` / `fade`. |
@@ -258,7 +289,7 @@ Pitfalls:
 - Svelte 5 runes only: `$state`, `$derived`, `$props`, `$effect`. No stores, no `export let`, no `on:click` (use `onclick`).
 - Destructure props in one `$props()` call with an inline type annotation; the codebase has no separate prop types.
 - Callbacks are `onX` props. Async work returns a promise so the caller can show an error.
-- Styling: Tailwind utility classes with the theme tokens (`bg-accent`, `border-border`, `text-zinc-300`). Add a token to `src/style.css` instead of a raw hex value.
+- Styling: Tailwind utility classes with the theme tokens (`bg-accent`, `border-border`, `text-danger`, `text-warning`). Add a token to `src/style.css` instead of a raw hex value.
 - Comments explain a non-obvious reason, in short sentences. Do not comment the obvious.
 - Keep the pure helpers free of component state so the node-environment tests can import them.
 - American English, no em dashes in prose, present tense in docs.

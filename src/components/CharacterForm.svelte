@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { Character } from '../types';
-  import { measureImage } from '../image';
+  import { SelectedImage } from '../selected-image.svelte';
 
   let { editingCharacter, onSave, onCancel }: {
     editingCharacter: Character | null;
@@ -13,69 +13,35 @@
   // used as starting values on purpose. untrack marks that intent.
   let name = $state(untrack(() => editingCharacter?.name ?? ''));
   let description = $state(untrack(() => editingCharacter?.description ?? ''));
-  let imagePreview = $state(untrack(() => editingCharacter?.image ?? ''));
   let saving = $state(false);
+  let saveError = $state<string | null>(null);
 
-  // Intrinsic size of `imagePreview`, together with the data URL it was measured
-  // from. The record must never store dimensions that belong to another image.
-  let measured = $state<{ src: string; width: number; height: number } | null>(
-    untrack(() =>
-      editingCharacter?.width && editingCharacter?.height
-        ? {
-            src: editingCharacter.image,
-            width: editingCharacter.width,
-            height: editingCharacter.height,
-          }
-        : null
-    )
-  );
+  // One preparation belongs to this draft. It owns choice ordering, the
+  // image/dimension pairing, readiness, discard restoration, and the
+  // suppression of results from superseded work.
+  const preparation = untrack(() => new SelectedImage(editingCharacter));
+  onDestroy(() => preparation.dispose());
 
-  function readFileAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function handleFileSelect(event: Event) {
+  function handleFileSelect(event: Event) {
     const input = event.target as HTMLInputElement;
+    if (saving) return;
+
     const file = input.files?.[0];
-    if (!file) return;
-
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      imagePreview = dataUrl;
-      measured = null;
-
-      try {
-        const size = await measureImage(dataUrl);
-        // Another file can be picked while this one decodes.
-        if (imagePreview === dataUrl) {
-          measured = { src: dataUrl, ...size };
-        }
-      } catch {
-        // The form still saves. App backfills missing dimensions later.
-      }
-    } catch (error) {
-      console.error('Failed to read the selected file:', error);
-      alert('Could not read the selected image.');
-    }
+    // Clear the native value so choosing the same file again starts a new
+    // preparation after a failure or a discard.
+    input.value = '';
+    saveError = null;
+    if (file) preparation.select(file);
   }
 
-  /** Dimensions to store for `image`, measuring it if that has not happened yet. */
-  async function resolveDimensions(image: string) {
-    if (measured?.src === image) {
-      return { width: measured.width, height: measured.height };
-    }
+  function handleDiscard() {
+    if (saving) return;
+    saveError = null;
+    preparation.discard();
+  }
 
-    try {
-      const size = await measureImage(image);
-      return { width: size.width, height: size.height };
-    } catch {
-      return { width: undefined, height: undefined };
-    }
+  function handleTextInput() {
+    saveError = null;
   }
 
   async function handleSubmit(event: Event) {
@@ -88,31 +54,32 @@
       return;
     }
 
-    // A new character needs an image. An existing one keeps the stored image
-    // when the user does not pick a replacement.
-    const image = imagePreview;
-    if (!image) {
-      alert('Image is required for new characters');
-      return;
-    }
+    const prepared = preparation.snapshot();
+    if (!prepared) return;
+
+    const draft = {
+      id: editingCharacter?.id,
+      name: trimmedName,
+      description: description.trim(),
+      ...prepared,
+    };
 
     saving = true;
+    saveError = null;
     try {
-      const { width, height } = await resolveDimensions(image);
-      await onSave({
-        id: editingCharacter?.id,
-        name: trimmedName,
-        description: description.trim(),
-        image,
-        width,
-        height,
-      });
+      await onSave(draft);
     } catch (error) {
       console.error('Failed to save the character:', error);
-      alert('Could not save the character. The browser storage may be full.');
+      saveError = 'Could not save the character. The browser storage may be full.';
     } finally {
       saving = false;
     }
+  }
+
+  function handleCancel() {
+    if (saving) return;
+    preparation.dispose();
+    onCancel();
   }
 </script>
 
@@ -128,6 +95,8 @@
         id="char-name"
         bind:value={name}
         required
+        disabled={saving}
+        oninput={handleTextInput}
         placeholder="Character name"
         class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
       />
@@ -138,6 +107,8 @@
         id="char-desc"
         bind:value={description}
         rows="3"
+        disabled={saving}
+        oninput={handleTextInput}
         placeholder="Brief description..."
         class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
       ></textarea>
@@ -151,31 +122,63 @@
         id="char-image"
         accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
         onchange={handleFileSelect}
+        disabled={saving}
+        aria-describedby="char-image-help char-image-status"
         class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover"
       />
-      <p class="mt-1 text-xs text-zinc-500">
+      <p id="char-image-help" class="mt-1 text-xs text-zinc-500">
         Downloads are converted to PNG. Large files use more browser storage.
       </p>
+      <div
+        id="char-image-status"
+        class="mt-2 space-y-1"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {#if preparation.status === 'preparing'}
+          <p class="text-sm text-zinc-300" role="status">Preparing the selected image…</p>
+        {:else if preparation.error}
+          <p class="text-sm text-danger" role="alert">{preparation.error}</p>
+        {:else if preparation.warning}
+          <p class="text-sm text-warning" role="status">{preparation.warning}</p>
+        {:else if !preparation.image && !editingCharacter}
+          <p class="text-sm text-zinc-400">Choose an image to enable saving.</p>
+        {/if}
+      </div>
+      {#if preparation.hasReplacement}
+        <button
+          type="button"
+          onclick={handleDiscard}
+          disabled={saving}
+          class="mt-2 rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+        >
+          Discard replacement
+        </button>
+      {/if}
     </div>
-    {#if imagePreview}
+    {#if preparation.image}
       <img
-        src={imagePreview}
+        src={preparation.image}
         alt="Preview of the selected character"
         class="mt-3 block max-w-[200px] rounded-lg"
       />
     {/if}
+    {#if saveError}
+      <p class="mt-3 text-sm text-danger" role="alert">{saveError}</p>
+    {/if}
     <div class="mt-6 flex gap-3">
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || !preparation.canSubmit}
         class="rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
       >
         {saving ? 'Saving...' : 'Save'}
       </button>
       <button
         type="button"
-        onclick={onCancel}
-        class="rounded-lg border border-border px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        onclick={handleCancel}
+        disabled={saving}
+        class="rounded-lg border border-border px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
       >
         Cancel
       </button>

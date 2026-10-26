@@ -15,7 +15,8 @@ your cards never leave your machine.
 
 - **Masonry gallery** — a CSS multi-column layout with no JavaScript position
   math, so it stays smooth with hundreds of cards and never shifts after load.
-- **Add, edit, and delete** characters from a single form.
+- **Add, edit, and delete** characters from a single form. A new image is
+  prepared before saving, so the latest file choice is the one stored.
 - **Search** across names and descriptions, case-insensitive.
 - **Sort** by newest, oldest, or name (numeric-aware, case-insensitive).
 - **Incremental rendering** — 24 cards at a time, with an `IntersectionObserver`
@@ -104,6 +105,7 @@ src/
   gallery-utils.ts           Filter, sort, and page-size rules
   download.ts                Data URL parsing and image export
   image.ts                   Aspect-ratio measurement
+  selected-image.svelte.ts   Selected-image preparation for the character form
   id.ts                      Card ID generation
   types.ts                   The Character type
   components/

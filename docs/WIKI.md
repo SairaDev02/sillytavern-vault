@@ -63,7 +63,8 @@ graph TD
   Gallery --> galleryUtils["gallery-utils.ts"]
   MasonryGrid --> MasonryItem["MasonryItem.svelte"]
   MasonryItem --> download["download.ts"]
-  CharacterForm --> image
+  CharacterForm --> selectedImage["selected-image.svelte.ts"]
+  selectedImage --> image
 ```
 
 Rules of the design:
@@ -71,12 +72,13 @@ Rules of the design:
 - `App.svelte` owns the database connection and the `characters` array. It is the only component that writes to the database.
 - `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the selected character.
 - Child components receive data and callbacks through props. They never import the database.
-- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state.
+- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts` is a stateful module, and one instance belongs to one form draft.
+- `CharacterForm.svelte` owns the text fields, the save action, and the save-time locking. `SelectedImage` owns the image choice, its dimensions, readiness, and recovery.
 
 ### Data flow for a save
 
-1. `CharacterForm.svelte` collects the name, the description, and the image data URL. It measures the image.
-2. The form calls `onSave`, which is `App.handleSave`.
+1. `CharacterForm.svelte` collects the name and the description. Its `SelectedImage` instance reads the chosen file, measures it, and decides whether the draft can be saved.
+2. The form takes a plain snapshot from the preparation module and calls `onSave`, which is `App.handleSave`.
 3. `App.handleSave` builds the `Character` record and calls `dbAdd`.
 4. `App` reloads the full list with `dbGetAll` and assigns `characters`.
 5. `Gallery.svelte` derives the filtered, sorted, and paged list from the new array.
@@ -92,6 +94,7 @@ Rules of the design:
 | `src/db.ts` | IndexedDB schema and the read and write functions. |
 | `src/id.ts` | `generateId`. |
 | `src/image.ts` | `measureImage`, which reads the intrinsic size of an image. |
+| `src/selected-image.svelte.ts` | `SelectedImage`, the form-owned selected-image preparation module. |
 | `src/gallery-utils.ts` | Page size, the sort type, and the search and sort rules. |
 | `src/download.ts` | Data URL parsing, PNG conversion, file name rules, and the download action. |
 | `src/style.css` | The Tailwind import and the color theme. |
@@ -175,6 +178,45 @@ export function measureImage(src: string): Promise<{ width: number; height: numb
 ```
 
 Loads the source in an `Image` element and resolves with `naturalWidth` and `naturalHeight`. The promise rejects when the image does not load. The function reads the image again from the data URL, so the browser does not need a network request.
+
+### `src/selected-image.svelte.ts`
+
+```ts
+export type PreparationStatus = 'idle' | 'preparing' | 'ready' | 'failed';
+export interface ImageSnapshot { image: string; width?: number; height?: number; }
+export interface SelectedImageDeps {
+  readFile?: (file: File) => Promise<string>;
+  measure?: (src: string) => Promise<{ width: number; height: number }>;
+}
+
+export class SelectedImage {
+  constructor(initial: ImageSnapshot | null, deps?: SelectedImageDeps);
+  readonly image: string;
+  readonly status: PreparationStatus;
+  readonly error: string | null;
+  readonly warning: string | null;
+  readonly canSubmit: boolean;
+  readonly hasReplacement: boolean;
+  select(file: File): void;
+  discard(): void;
+  snapshot(): ImageSnapshot | null;
+  dispose(): void;
+}
+```
+
+One instance belongs to one form draft. The module hides these rules from the form:
+
+- The latest `select` call is authoritative. A generation token is checked before every asynchronous success, failure, and warning, so obsolete work cannot change the preview, dimensions, readiness, or feedback.
+- While a replacement is prepared, the stored image stays visible and the old dimensions, the submission snapshot, and readiness are cleared. A ready preview, its dimensions, and the snapshot stay paired. A failed measurement leaves both dimensions undefined instead of reusing another image's size.
+- `status` stays `preparing` until both the read and the measurement settle. `canSubmit` is true only for `idle` or `ready` with an image present, so a pending or failed replacement blocks saving.
+- A read failure sets `status` to `failed`, keeps the stored image visible behind the error, and blocks saving until `discard` or another `select`.
+- `discard` returns to the stored image and its known dimensions, or to no image on the add form. It invalidates outstanding work first.
+- `dispose` invalidates every outstanding result. The form calls it on unmount.
+- `snapshot` returns a copy, so a draft in flight cannot change after submission starts.
+
+The default dependencies are `FileReader` and `measureImage`. The optional dependencies let controlled tests complete reads and measurements in any order without a browser.
+
+A stored dimension pair is kept only when both numbers are known. A partial pair becomes two absent dimensions, and `App.backfillDimensions` measures the stored image later.
 
 ### `src/gallery-utils.ts`
 
@@ -292,13 +334,18 @@ Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons d
 
 Props: `editingCharacter`, `onSave` (async), `onCancel`.
 
-State: `name`, `description`, `imagePreview`, `saving`, `measured`.
+State: `name`, `description`, `saving`, `saveError`, and one `preparation` (`SelectedImage`).
 
 Behavior:
 
-- The file input reads the file one time. The same data URL serves the preview, the measurement, and the saved record.
-- `measured` holds the size together with the data URL it belongs to. The form never stores the size of a different image.
-- Submit awaits `onSave`, disables the button, and shows an alert when the write fails, for example when the storage quota is full.
+- `SelectedImage` reads the chosen file, measures it, and correlates each image with its own dimensions. The form no longer coordinates those facts.
+- The form shows `preparation.image` as the preview. The latest explicit file choice wins, even when an older read or measurement finishes later.
+- Save is disabled while a selection is preparing or after a read failure. The submit handler calls `preparation.snapshot()` and returns without saving when the draft is not ready, so a direct submit cannot bypass the gate.
+- A measurement failure still allows saving, with both dimensions absent and an inline warning.
+- The **Discard replacement** button restores the stored image and its dimensions on edit, or no image on add. The file input resets its native value after each choice, so choosing the same file again starts a new preparation.
+- Read errors and measurement warnings render inline with `role="alert"` and `role="status"`. The file input points at them with `aria-describedby`.
+- While `onSave` is pending, the name, the description, the file input, the discard button, Save, and Cancel are disabled. Duplicate submissions are ignored. A rejected save keeps the prepared draft, shows an inline error, and unlocks the controls for a retry.
+- Cancel disposes the preparation immediately, and unmount does the same. Late results cannot reach another draft.
 - The initial values come from `editingCharacter` inside `untrack`. The call is intentional, because `App` mounts a new form for each target.
 
 ## 10. Core Flows
@@ -330,6 +377,8 @@ Behavior:
 | `--color-bg-card` | `#0f3460` | Declared but not used today. |
 | `--color-accent` | `#e94560` | Primary actions and headings. |
 | `--color-accent-hover` | `#d63a54` | Hover state of a primary action. |
+| `--color-danger` | `#f87171` | Form error text, including a failed save. |
+| `--color-warning` | `#fcd34d` | Non-blocking form warnings, such as a failed size measurement. |
 | `--color-border` | `#533483` | Borders and secondary buttons. |
 
 Use the token names (`bg-accent`, `text-accent`, `border-border`) rather than raw colors.
@@ -364,10 +413,12 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
 | `tests/app.test.ts` | The full workflow on the real `App`: load, add with a file, edit, delete. |
+| `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
+| `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, and accessible feedback. |
 
 Helpers:
 
-- `tests/fixtures.ts` holds `PNG_1X1` and `makeCharacter` / `makeCharacters`.
+- `tests/fixtures.ts` holds `PNG_1X1`, `makeCharacter` / `makeCharacters`, `makeFile`, and `deferred`.
 - `tests/GalleryHarness.svelte` mounts `Gallery` and exposes `setCharacters`, so a test can change the list the way `App` does.
 - `tests/setup.ts` adds `fake-indexeddb` and stand-ins for the browser interfaces that jsdom does not supply: `matchMedia`, the Web Animations API, and the `<dialog>` methods.
 
@@ -405,14 +456,27 @@ Notes:
 - Call `settle()` after a change that starts a transition. The animation stand-in in `tests/setup.ts` completes on a microtask, so a flush plus a tick is enough.
 - Use `vi.waitFor` for a value that arrives through a promise, such as a database read. `tests/app.test.ts` shows the pattern.
 - Stub `Image` when a test reaches `measureImage`. jsdom does not decode images.
+- `tests/selected-image.test.ts` drives the preparation module through injected read and measure promises. `tests/character-form.test.ts` mounts the real form with a controlled `FileReader` and a controlled `Image`.
 - Stub `confirm` and `alert` before a test touches a delete or a validation path.
 
 ### What the tests do not cover
 
-- A real browser. The jsdom stand-ins approximate the dialog, the animations, and `matchMedia`.
+- A real browser in the automated suite. The jsdom stand-ins approximate the dialog, the animations, and `matchMedia`.
 - The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
 - The canvas path of `downloadCharacterImage`, because jsdom has no canvas.
 - The performance of the gallery with a large library.
+
+### Browser smoke check for selected-image preparation
+
+A manual check ran in headless Chrome 156 on Windows against the production build. The harness assigned files to the input through the DevTools Protocol and dispatched `change`, so it exercised the real `FileReader` and image decoding but not the native picker dialog itself. The check confirmed:
+
+- A valid PNG choice publishes a preview and enables Save.
+- Discard clears the preview, disables Save, and resets the picker value.
+- A second programmatic assignment of the same file after discard starts a new preparation.
+- A file that reads but does not decode shows the warning, keeps Save enabled, and the gallery accepts the record.
+- The file input exposes `aria-describedby`, and the status region is a persistent polite live region. The check inspected the markup; it did not test a screen-reader announcement.
+
+This is a manual smoke check, not part of `npm test`. Re-run it when the form, the file input, or the feedback markup changes.
 
 ## 14. Verification and Build
 

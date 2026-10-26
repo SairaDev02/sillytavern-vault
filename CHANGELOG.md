@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The Character form now honors the latest explicit image choice. A slower read
+  or measurement from an earlier file can no longer replace the preview, the
+  dimensions, or the image that is saved.
+- Save is disabled while a selected image is being prepared, and a failed read
+  blocks saving until the user discards the replacement or chooses another
+  file. A failed size measurement still allows saving, with both dimensions
+  absent and a visible warning.
+- Discarding a pending replacement restores the stored image and its known
+  dimensions. Choosing the same file again starts a new preparation.
+- Saving freezes the draft and ignores duplicate submissions. A rejected save
+  keeps the prepared draft, shows the error, and unlocks the form for a retry.
+
 ## [1.0.0] - 2026-09-22
 
 The first public release.
