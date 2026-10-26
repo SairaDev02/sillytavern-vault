@@ -47,16 +47,17 @@ To reset the local data, open the browser devtools, go to **Application > Indexe
 
 ## 4. Architecture
 
-The app is one page with five layers: the entry point, the page shell, the view components, the pure helpers, and the storage layer.
+The app is one page with six layers: the entry point, the page shell, the stateful modules, the view components, the pure helpers, and the storage layer.
 
 ```mermaid
 graph TD
   main["main.ts"] --> App
-  App["App.svelte: character data and persistence"] --> Gallery
+  App["App.svelte: page shell"] --> characterLibrary["character-library.svelte.ts: the Character library"]
+  App --> Gallery
   App --> CharacterForm["CharacterForm.svelte"]
-  App --> db["db.ts"]
-  App --> id["id.ts"]
-  App --> image["image.ts"]
+  characterLibrary --> db["db.ts"]
+  characterLibrary --> id["id.ts"]
+  characterLibrary --> image["image.ts"]
   Gallery["Gallery.svelte: view state"] --> GalleryToolbar["GalleryToolbar.svelte"]
   Gallery --> MasonryGrid["MasonryGrid.svelte"]
   Gallery --> Lightbox["Lightbox.svelte"]
@@ -69,19 +70,22 @@ graph TD
 
 Rules of the design:
 
-- `App.svelte` owns the database connection and the `characters` array. It is the only component that writes to the database.
+- `character-library.svelte.ts` owns the database connection and the canonical `characters` list. It is the only writer of Character records. `App.svelte` reads the list and renders it. It never builds a record, preserves a creation time, or reloads the library after a save.
 - `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the selected character.
 - Child components receive data and callbacks through props. They never import the database.
-- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts` is a stateful module, and one instance belongs to one form draft.
-- `CharacterForm.svelte` owns the text fields, the save action, and the save-time locking. `SelectedImage` owns the image choice, its dimensions, readiness, and recovery.
+- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts` and `character-library.svelte.ts` are stateful modules with injected dependencies; one `SelectedImage` belongs to one form draft, and one `CharacterLibrary` belongs to one page lifetime.
+- `CharacterForm.svelte` owns the text fields, the save action, and the save-time locking. `SelectedImage` owns the image choice, its dimensions, readiness, and recovery. `CharacterLibrary` owns identity, creation time, the size pair rules, and delete outcomes.
 
 ### Data flow for a save
 
 1. `CharacterForm.svelte` collects the name and the description. Its `SelectedImage` instance reads the chosen file, measures it, and decides whether the draft can be saved.
 2. The form takes a plain snapshot from the preparation module and calls `onSave`, which is `App.handleSave`.
-3. `App.handleSave` builds the `Character` record and calls `dbAdd`.
-4. `App` reloads the full list with `dbGetAll` and assigns `characters`.
-5. `Gallery.svelte` derives the filtered, sorted, and paged list from the new array.
+3. `App.handleSave` passes the draft to `CharacterLibrary.save`. It does not build the record.
+4. The library assembles the record inside its serialized operation chain and commits it with `dbAdd`.
+5. Only after the storage transaction commits, the library publishes the committed record into the canonical list. There is no full-library reload after a mutation.
+6. `Gallery.svelte` derives the filtered, sorted, and paged list from the new array.
+
+A rejection reaches the form, which keeps the draft and shows its own message. A resolution means the record is committed and published.
 
 ## 5. Source Layout
 
@@ -89,8 +93,10 @@ Rules of the design:
 |---|---|
 | `index.html` | HTML entry page. It loads `src/main.ts`. |
 | `src/main.ts` | Mounts `App` into `#app` and imports `style.css`. |
-| `src/App.svelte` | Page shell. Database connection, list state, save and delete actions, dimension backfill. |
+| `src/App.svelte` | Page shell. Renders the start-up, failure, and ready states, the delete notice, and the form or gallery. No storage knowledge. |
 | `src/types.ts` | The `Character` interface. |
+| `src/character-library.svelte.ts` | `CharacterLibrary`, the only writer of Character records and the owner of the canonical list. |
+| `src/library-error.ts` | `LibraryError` and `LibraryErrorKind`, with no storage imports, so a component can branch on an error kind without the database. |
 | `src/db.ts` | IndexedDB schema and the read and write functions. |
 | `src/id.ts` | `generateId`. |
 | `src/image.ts` | `measureImage`, which reads the intrinsic size of an image. |
@@ -133,12 +139,12 @@ export interface Character {
 Rules:
 
 - `width` and `height` must describe `image`. A wrong value distorts the card shape, because `MasonryItem` reserves the space from these numbers.
-- When the size is unknown, leave both fields empty. The backfill measures them after the next load.
-- `createdAt` never changes after the first save. `App.handleSave` copies the stored value during an edit, so the sort order stays stable.
+- When the size is unknown, leave both fields empty. `CharacterLibrary` measures them in the background after start-up.
+- `createdAt` never changes after the first save. `CharacterLibrary` copies the stored value during an edit, so the sort order stays stable.
 
 ## 7. Storage Layer
 
-The database name is `character-gallery`. The name is a literal in `App.svelte`. The version is `1`. The version constant lives in `src/db.ts`.
+The database name is `character-gallery`. The name is a default in `character-library.svelte.ts` and a literal only in tests. The version is `1`. The version constant lives in `src/db.ts`.
 
 The object store is `characters`. The key path is `id`. The store has one index, `name`, which is not unique. No query uses the index today. The list is read with `getAll` and sorted in memory.
 
@@ -158,7 +164,7 @@ The private helper `awaitTransaction` attaches `oncomplete`, `onerror`, and `ona
 
 1. Increase `DB_VERSION` in `src/db.ts`.
 2. Add the change in the `onupgradeneeded` handler. Guard a new store or index with a `contains` test, as the current code does.
-3. Give old records a default value in `App.backfillDimensions` or in a new backfill function. Keep the guard that re-reads the record before the write.
+3. Give old records a default value in the `CharacterLibrary` record rules or in its background repair. Keep the repair's freshness check: it writes only into the record as it stands now.
 4. Update `tests/db.test.ts`. Add a test that opens an old version and then runs the upgrade.
 
 ## 8. Module Reference
@@ -178,6 +184,60 @@ export function measureImage(src: string): Promise<{ width: number; height: numb
 ```
 
 Loads the source in an `Image` element and resolves with `naturalWidth` and `naturalHeight`. The promise rejects when the image does not load. The function reads the image again from the data URL, so the browser does not need a network request.
+
+### `src/character-library.svelte.ts`
+
+```ts
+export const REPAIR_WARNING = 'Some stored images could not be measured. ...';
+export type LibraryStatus = 'loading' | 'ready' | 'failed';
+export interface CharacterDraft {
+  id?: string;
+  name: string;
+  description: string;
+  image: string;
+  width?: number;
+  height?: number;
+}
+export interface CharacterLibraryDeps {
+  openDatabase?: (name: string) => Promise<IDBDatabase>;
+  readAll?: (database: IDBDatabase) => Promise<Character[]>;
+  write?: (database: IDBDatabase, character: Character) => Promise<void>;
+  remove?: (database: IDBDatabase, id: string) => Promise<void>;
+  removeMany?: (database: IDBDatabase, ids: string[]) => Promise<void>;
+  measure?: (src: string) => Promise<{ width: number; height: number }>;
+  generateId?: () => string;
+  now?: () => number;
+  databaseName?: string;
+  logger?: Pick<Console, 'warn' | 'error'>;
+}
+
+export class CharacterLibrary {
+  constructor(deps?: CharacterLibraryDeps);
+  readonly characters: Character[];
+  readonly status: LibraryStatus;
+  readonly failureMessage: string | null;
+  readonly repairWarning: string | null;
+  initialize(): Promise<void>;
+  save(draft: CharacterDraft): Promise<void>;
+  remove(id: string): Promise<void>;
+  removeMany(ids: string[]): Promise<void>;
+  dispose(): void;
+}
+```
+
+One instance belongs to one page lifetime. It is the only writer of Character records and the only owner of the canonical list. The module hides these rules from the page shell:
+
+- `initialize` waits for writes accepted before the call to commit, then opens the database and reads every record outside the commit chain. The same call serves the first start and Retry. `status` moves from `loading` to `ready`, or to `failed` with `failureMessage` and an empty list. The publication joins the chain, and the current list stays until the read replaces it. A later `initialize` supersedes an earlier one: it does not wait for an older pending read, and an older read cannot publish after it.
+- `save`, `remove`, and `removeMany` reject with the `unavailable` kind before readiness and after disposal. An unavailable library never queues work for later.
+- Every commit and its in-memory publication are one step on a serialized chain, so acceptance order is commit order. A failed step never poisons the chain. An older result cannot land after a newer one.
+- `save` assembles the record: a fresh identity on create, the stored identity and creation time on an edit. An edit whose identity is not in the canonical list rejects with `missing-target` and writes nothing. A draft with no complete pair supplies no size, and a partial pair collapses to no size. When no size is supplied and the image is unchanged, the stored pair is kept; otherwise the record has no size. A copied draft is used, so a later form change cannot alter a save already in flight.
+- A resolved mutation means the storage transaction committed and the record is published. A rejection means nothing was committed. A `write-failed` error carries the storage error in `cause`.
+- Background repair measures a record without a size outside the chain and enqueues only the short write. The write re-checks that the record still exists, still shows the measured image, is still the same image generation, and still has no size. It merges the pair into the current record, so a newer name or description always wins. Attempts are bounded once per identity and image generation per initialized lifetime. A failure logs the Character name and sets one `repairWarning`.
+- `dispose` marks the instance inactive. Later repairs and publications do nothing, new mutations reject, an accepted write still commits and settles, and the connection closes after the chain drains.
+
+The default dependencies are the helpers in `db.ts`, `id.ts`, and `image.ts`. The default database name is `character-gallery`. The optional dependencies let tests control a failing open or read, hold a write, complete a measurement later, and fix the clock.
+
+`LibraryError` and `LibraryErrorKind` are declared in `src/library-error.ts` and re-exported here, so the library's public surface stays in one place. A component that only needs to branch on the error kind imports `src/library-error.ts` and never pulls `db.ts` into its own module graph.
 
 ### `src/selected-image.svelte.ts`
 
@@ -216,7 +276,7 @@ One instance belongs to one form draft. The module hides these rules from the fo
 
 The default dependencies are `FileReader` and `measureImage`. The optional dependencies let controlled tests complete reads and measurements in any order without a browser.
 
-A stored dimension pair is kept only when both numbers are known. A partial pair becomes two absent dimensions, and `App.backfillDimensions` measures the stored image later.
+A stored dimension pair is kept only when both numbers are known. A partial pair becomes two absent dimensions, and the background repair in `CharacterLibrary` measures the stored image later.
 
 ### `src/gallery-utils.ts`
 
@@ -266,16 +326,18 @@ Do not release the object URL immediately. The browser reads the blob after the 
 
 ### `App.svelte`
 
-Owns `db`, `characters`, `editingCharacter`, `showForm`, and `loading`. Starts the app in `init()`.
+Constructs one `CharacterLibrary` for the page lifetime and disposes it on destroy. Owns `editingCharacter`, `showForm`, and `deleteNotice`. The library owns the list and the start-up state.
 
 | Callback | Behavior |
 |---|---|
-| `handleSave(data)` | Builds the record. Reuses the id and the `createdAt` value for an edit. Writes the record, closes the form, and reloads the list. |
-| `handleDelete(id)` | Asks for a confirmation, deletes the record, and removes it from the array. |
-| `handleDeleteMany(ids)` | Asks for a confirmation, deletes the records, and returns a boolean. |
-| `backfillDimensions()` | Measures every record without a size and writes the result. Re-reads each record first, and skips a record that changed or disappeared. |
+| `handleSave(draft)` | Passes the draft to `CharacterLibrary.save`. On success it clears the delete notice, closes the form, and clears the edit target. On rejection it leaves both alone and lets the rejection reach the form. |
+| `handleDelete(id)` | Asks for a confirmation, calls `CharacterLibrary.remove`, and on failure sets the page delete notice. A canceled confirmation never calls the library. |
+| `handleDeleteMany(ids)` | Asks for a confirmation, calls `CharacterLibrary.removeMany`, and returns a boolean. A canceled or failed delete returns false, which keeps the selection. |
+| `retry()` | Calls `CharacterLibrary.initialize()` again. It never deletes or replaces stored records. |
 
-The markup shows one of three states: the form, the loading text, or the gallery. The form is inside `{#key editingCharacter?.id ?? 'new'}`. The key makes a new form instance for each target, so the form state can never belong to another character.
+The markup shows one of four states: the form, the loading text, the start-up failure with Retry, or the gallery. The Add action is disabled outside the ready state. The delete notice sits above the form and the gallery, so it survives closing the lightbox. The form is inside `{#key editingCharacter?.id ?? 'new'}`. The key makes a new form instance for each target, so the form state can never belong to another character.
+
+The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or `image.ts`.
 
 ### `Gallery.svelte`
 
@@ -344,19 +406,24 @@ Behavior:
 - A measurement failure still allows saving, with both dimensions absent and an inline warning.
 - The **Discard replacement** button restores the stored image and its dimensions on edit, or no image on add. The file input resets its native value after each choice, so choosing the same file again starts a new preparation.
 - Read errors and measurement warnings render inline with `role="alert"` and `role="status"`. The file input points at them with `aria-describedby`.
-- While `onSave` is pending, the name, the description, the file input, the discard button, Save, and Cancel are disabled. Duplicate submissions are ignored. A rejected save keeps the prepared draft, shows an inline error, and unlocks the controls for a retry.
+- While `onSave` is pending, the name, the description, the file input, the discard button, Save, and Cancel are disabled. Duplicate submissions are ignored. A rejected save keeps the prepared draft, shows an inline error, and unlocks the controls for a retry. A `missing-target` rejection shows its own message, so a refused edit does not read as a storage fault.
+- The form sends a `CharacterDraft` from `character-library.svelte.ts`. It does not build a `Character` record or set the creation time.
 - Cancel disposes the preparation immediately, and unmount does the same. Late results cannot reach another draft.
 - The initial values come from `editingCharacter` inside `untrack`. The call is intentional, because `App` mounts a new form for each target.
 
 ## 10. Core Flows
 
-**Startup.** `main.ts` mounts `App`. `init` opens the database and loads the list. `loading` becomes false. The backfill starts in the background and does not block the first paint.
+**Startup.** `main.ts` mounts `App`. The page constructs one `CharacterLibrary` and calls `initialize` from `onMount`. The shell renders the loading state until the read finishes, then the gallery. Old records without a size are measured in the background and do not block the first paint.
 
-**Add.** The user clicks **+ Add Character**. The form mounts with the key `new`. A save writes a record with a new id and the current time.
+**Start-up failure.** A failed open or a failed initial read puts the library in the `failed` state with a message and an empty list. The shell shows the failure with Retry and keeps the Add action disabled. Retry calls `initialize` again; stored records are never deleted or replaced.
 
-**Edit.** The lightbox calls `onEdit`. `App.startEdit` sets `editingCharacter` and shows the form. The key is the character id, so the form mounts with the stored values. A save keeps the id and the `createdAt` value.
+**Add.** The user clicks **+ Add Character**. The form mounts with the key `new`. A save sends a draft with no id; the library assigns a new identity and the current time.
 
-**Delete.** One delete comes from the lightbox, a batch delete from the toolbar. Both ask for a confirmation first. The lightbox closes before the confirmation appears.
+**Edit.** The lightbox calls `onEdit`. `App.startEdit` sets `editingCharacter` and shows the form. The key is the character id, so the form mounts with the stored values. A save sends the stored id; the library keeps the identity and the `createdAt` value, or refuses the save when the record is gone.
+
+**Save.** The library commits the record first and publishes it second. The form closes only after the save resolves. A rejection keeps the form open with the draft, the image, and an inline message.
+
+**Delete.** One delete comes from the lightbox, a batch delete from the toolbar. Both ask for a confirmation first in the page shell. The lightbox closes before the confirmation appears. A failed delete sets one page notice, and a failed batch delete also keeps the selection.
 
 **Search and sort.** `Gallery` computes `filteredCharacters` from the full list on every change. The page count returns to the first page.
 
@@ -407,19 +474,21 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 
 | File | Coverage |
 |---|---|
-| `tests/db.test.ts` | Open, add, replace, delete, delete many, read, and the failure path. |
+| `tests/db.test.ts` | Open, add, replace, delete, delete many, read, the failure path, and pre-commit aborts for every write helper. |
 | `tests/id.test.ts` | Uniqueness and the two id paths. |
 | `tests/download.test.ts` | The data URL parser, the blob conversion, and the file name rules. |
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
-| `tests/app.test.ts` | The full workflow on the real `App`: load, add with a file, edit, delete. |
+| `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
+| `tests/app.test.ts` | The mounted page: load, add with a file, edit, delete, loading versus empty, failed start with Retry, a rejected save that keeps the draft, and the delete and batch-delete outcomes. |
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
-| `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, and accessible feedback. |
+| `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
 
 Helpers:
 
 - `tests/fixtures.ts` holds `PNG_1X1`, `makeCharacter` / `makeCharacters`, `makeFile`, and `deferred`.
 - `tests/GalleryHarness.svelte` mounts `Gallery` and exposes `setCharacters`, so a test can change the list the way `App` does.
+- `tests/character-library.test.ts` constructs `CharacterLibrary` with real storage helpers pointed at a unique database per test, and controls measurement, identity, the clock, and held writes.
 - `tests/setup.ts` adds `fake-indexeddb` and stand-ins for the browser interfaces that jsdom does not supply: `matchMedia`, the Web Animations API, and the `<dialog>` methods.
 
 ### Recipe: a component test
@@ -465,6 +534,7 @@ Notes:
 - The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
 - The canvas path of `downloadCharacterImage`, because jsdom has no canvas.
 - The performance of the gallery with a large library.
+- The missing-target message on the mounted page. The page cannot delete a record behind its own open form, and multi-tab changes are out of scope, so the message is witnessed at the form seam instead. The page's passthrough of a real rejection is witnessed by the write-failure test.
 
 ### Browser smoke check for selected-image preparation
 
@@ -477,6 +547,21 @@ A manual check ran in headless Chrome 156 on Windows against the production buil
 - The file input exposes `aria-describedby`, and the status region is a persistent polite live region. The check inspected the markup; it did not test a screen-reader announcement.
 
 This is a manual smoke check, not part of `npm test`. Re-run it when the form, the file input, or the feedback markup changes.
+
+### Browser smoke check for the Character library
+
+A manual check ran in headless Chrome 156 on Windows against the production build with `vite preview`, driven through Playwright. It used the real IndexedDB, `FileReader`, and image decoding. Storage faults were injected in the page for the failure paths. The check confirmed:
+
+- An empty database shows the empty message, not the loading state.
+- Adding a Character with a real PNG writes the record and shows the card at once, with no reload.
+- Editing keeps the gallery order, so `createdAt` survived the edit, and the card did not duplicate.
+- A single delete from the lightbox removes the card and closes the dialog.
+- A batch delete of three records removes all of them in one step, clears the selection, and leaves select mode.
+- A failing `indexedDB.open` shows the failure state with the reason and Retry, keeps Add disabled, and shows no cards. Retry restores the stored record and enables Add.
+- A failing `put` keeps the form open with the typed name, description, and preview, stores nothing, and saves on a retry after the fault clears.
+- A failing `delete` keeps the card, closes the lightbox, and leaves the notice above the gallery. The notice disappears after the next successful delete.
+
+This is a manual smoke check, not part of `npm test`. Re-run it when the library, the page shell, or the delete notice changes. The injected faults are not browser validation of a real storage failure, only of the recovery path in a real browser.
 
 ## 14. Verification and Build
 
@@ -491,12 +576,12 @@ Continuous integration runs the check, the tests, and the build on Node 22 and 2
 ### Add a field to `Character`
 
 1. Add the field to `src/types.ts`.
-2. Give it a default in `App.handleSave`.
+2. Give it a default in the record rules in `src/character-library.svelte.ts`.
 3. Change the form in `src/components/CharacterForm.svelte`.
 4. Add the field to the search in `src/gallery-utils.ts` when it must be searchable.
-5. Add a backfill for old records, and keep the re-read guard.
+5. Extend the background repair in `CharacterLibrary` for old records, and keep the freshness check that writes into the current record.
 6. Change `DB_VERSION` and the upgrade handler only when the change touches a store or an index.
-7. Extend `tests/db.test.ts`, `tests/gallery-utils.test.ts`, and `tests/app.test.ts`.
+7. Extend `tests/db.test.ts`, `tests/gallery-utils.test.ts`, `tests/character-library.test.ts`, and `tests/app.test.ts`.
 
 ### Add a sort mode
 
@@ -524,8 +609,12 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 | CSS multi-column layout | The browser does the layout work. The app needs no measurement loop. See `docs/designMasonry.md`. |
 | `aspect-ratio` from stored dimensions | A card reserves its space before the image decodes, so the columns do not jump. |
 | `sentinelEl` is `$state` | The sentinel appears only after the first page is full. An effect with no reactive dependency runs once and never attaches an observer. `tests/gallery-scroll.test.ts` guards this behavior. |
-| `createdAt` copied on edit | A save used to set the current time, so an edit moved the card to the top of the `newest` order. |
-| Re-read guard in the backfill | The backfill decodes an image while the user can edit the same record. The old code wrote the stale copy back and lost the edit. |
+| `createdAt` copied on edit | A save used to set the current time, so an edit moved the card to the top of the `newest` order. The library now owns that rule in one place. |
+| The Character library is the only writer | Two call sites used to build records and coordinate backfill. One page-owned module removes that duplicate knowledge and the stale-copy bug. See `docs/adr/0001-page-owned-character-library.md`. |
+| Commit, then publish | The library writes to storage first and publishes the committed record into its own list second. There is no full reload after a mutation, so a save cannot show a record that was never stored, and an older result cannot land after a newer one. A start-up read waits for accepted writes, then runs outside the chain, and its publication joins the chain. |
+| Size repair merges into the current record | The repair decode is slow and the user can edit meanwhile. The queued write re-checks the record and merges the measured pair into it, so a newer name or description always wins. |
+| Repair attempts are keyed by identity and image generation | The attempt must survive an ordinary publication, be repeated for a replaced image, and start fresh on a new page lifetime. Keying by the image data itself would treat two identical images as one. |
+| Retry reuses `initialize` | A failed open and a failed read both land in the same recovery path, so there is no second start-up code path to keep aligned. |
 | `untrack` in the form | The form snapshots the prop on purpose. `App` keys the form by target, so the snapshot is always correct. |
 | 60-second object URL lifetime | The browser reads the blob after the click returns. An immediate release can cancel a download. |
 | Rejection on `abort` in `db.ts` | An aborted transaction fires only `abort`. Without a handler, the promise never settles. |
@@ -540,7 +629,8 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 - `Gallery` passes `animate={true}` to `MasonryGrid` as a literal, so the `animate` prop of that component is not reachable from the app today.
 - The list animation cost grows with the number of rendered cards. The default page size limits the effect.
 - The app has no import or export for character cards. A library cannot move between browser profiles.
-- The database connection stays open for the lifetime of the page. This behavior is correct for a single-page app. A future schema change in another tab waits for the reload.
+- The database connection stays open for the lifetime of the page. `CharacterLibrary.dispose` closes it after the operation chain drains, which is correct for a single-page app. A future schema change in another tab waits for the reload.
+- Same-page ordering only. The library does not synchronize with another tab that writes the same database.
 - The repository has no linter and no formatter. Continuous integration runs `npm run check`, `npm test`, and `npm run build`. Run the same commands by hand before you push.
 - `--color-bg-card` is declared but unused.
 
@@ -551,6 +641,7 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 | `docs/WIKI.md` | Developers | A module, a flow, or a convention changes. |
 | `docs/LLM-WIKI.md` | Coding agents | The file map, the invariants, or the commands change. |
 | `docs/designMasonry.md` | Developers | The layout strategy or the animation model changes. |
+| `docs/adr/` | Developers | A decision that constrains future changes is settled. |
 | `docs/ASD-STE100-LLM-Writing-Rules.md` | Writers | Rarely. It is the style reference for the other documents. |
 | `README.md` | Users and newcomers | The features, the setup steps, or the command line changes. |
 | `CONTRIBUTING.md` | Contributors | The checks, the conventions, or the pull request process changes. |

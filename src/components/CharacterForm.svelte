@@ -1,13 +1,20 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import type { Character } from '../types';
+  import type { CharacterDraft } from '../character-library.svelte';
+  import { LibraryError } from '../library-error';
   import { SelectedImage } from '../selected-image.svelte';
 
   let { editingCharacter, onSave, onCancel }: {
     editingCharacter: Character | null;
-    onSave: (character: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => Promise<void>;
+    onSave: (draft: CharacterDraft) => Promise<void>;
     onCancel: () => void;
   } = $props();
+
+  const SAVE_FAILED = 'Could not save the character. The browser storage may be full.';
+  const MISSING_TARGET =
+    'Could not save: this Character is no longer in the library. ' +
+    'Copy anything you need from this form.';
 
   // App mounts a new form for each add or edit ({#key}), so the prop values are
   // used as starting values on purpose. untrack marks that intent.
@@ -57,7 +64,7 @@
     const prepared = preparation.snapshot();
     if (!prepared) return;
 
-    const draft = {
+    const draft: CharacterDraft = {
       id: editingCharacter?.id,
       name: trimmedName,
       description: description.trim(),
@@ -70,7 +77,11 @@
       await onSave(draft);
     } catch (error) {
       console.error('Failed to save the character:', error);
-      saveError = 'Could not save the character. The browser storage may be full.';
+      // Branch on the kind, so a refused edit does not read as a storage fault.
+      saveError =
+        error instanceof LibraryError && error.kind === 'missing-target'
+          ? MISSING_TARGET
+          : SAVE_FAILED;
     } finally {
       saving = false;
     }

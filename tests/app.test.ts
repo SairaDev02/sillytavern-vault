@@ -51,6 +51,27 @@ async function readDatabase(): Promise<Character[]> {
   return all;
 }
 
+/**
+ * Make the next storage write fail, through the same prototype method the
+ * helper uses. The returned function restores the real method.
+ */
+async function breakStoreMethod(method: 'put' | 'delete'): Promise<() => void> {
+  const db = await openDB(DB_NAME);
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const store = tx.objectStore(STORE_NAME);
+  const proto = Object.getPrototypeOf(store) as IDBObjectStore;
+  const original = proto[method];
+
+  (proto as unknown as Record<string, unknown>)[method] = () => {
+    throw new Error(`${method} blocked`);
+  };
+
+  return () => {
+    (proto as unknown as Record<string, unknown>)[method] = original;
+    db.close();
+  };
+}
+
 /** Flush Svelte updates plus the animation microtasks from the WAAPI stub. */
 async function settle() {
   for (let i = 0; i < 5; i += 1) {
@@ -88,9 +109,60 @@ describe('App', () => {
       (button) => button.textContent?.trim() === label
     ) as HTMLButtonElement | undefined;
   const dialog = () => target.querySelector('dialog') as HTMLDialogElement | null;
+  const preview = () =>
+    target.querySelector<HTMLImageElement>('img[alt="Preview of the selected character"]');
 
   async function waitFor(check: () => void, timeout = 3000) {
     await vi.waitFor(check, { timeout, interval: 10 });
+  }
+
+  async function waitForReady() {
+    await waitFor(() => expect(buttonWithText('+ Add Character')?.disabled).toBe(false));
+  }
+
+  function setName(value: string) {
+    const input = target.querySelector<HTMLInputElement>('#char-name')!;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function setDescription(value: string) {
+    const input = target.querySelector<HTMLTextAreaElement>('#char-desc')!;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function chooseImage(name = 'newcomer.png') {
+    const fileInput = target.querySelector<HTMLInputElement>('#char-image')!;
+    const file = new File([new Uint8Array([137, 80, 78, 71])], name, {
+      type: 'image/png',
+    });
+    Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => expect(preview()).not.toBeNull());
+  }
+
+  function submitForm() {
+    target
+      .querySelector<HTMLFormElement>('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  async function openLightbox() {
+    target.querySelector<HTMLButtonElement>('figure button')!.click();
+    await settle();
+    await waitFor(() => expect(dialog()?.open).toBe(true));
+  }
+
+  async function enterSelectMode() {
+    buttonWithText('Select')!.click();
+    await settle();
+  }
+
+  function selectCard(name: string) {
+    const box = target.querySelector<HTMLInputElement>(`input[aria-label="Select ${name}"]`)!;
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   it('renders the characters stored in the database', async () => {
@@ -109,30 +181,14 @@ describe('App', () => {
     await seedDatabase([]);
 
     start();
-    await waitFor(() => expect(buttonWithText('+ Add Character')).toBeDefined());
+    await waitForReady();
     buttonWithText('+ Add Character')!.click();
     await settle();
 
-    const nameInput = target.querySelector<HTMLInputElement>('#char-name')!;
-    nameInput.value = 'Newcomer';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    setName('Newcomer');
+    await chooseImage();
 
-    const fileInput = target.querySelector<HTMLInputElement>('#char-image')!;
-    const file = new File([new Uint8Array([137, 80, 78, 71])], 'newcomer.png', {
-      type: 'image/png',
-    });
-    Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
-    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // The preview only appears once the file has been read.
-    await waitFor(() =>
-      expect(target.querySelector('img[alt="Preview of the selected character"]')).not.toBeNull()
-    );
-
-    target.querySelector<HTMLFormElement>('form')!.dispatchEvent(
-      new Event('submit', { bubbles: true, cancelable: true })
-    );
-
+    submitForm();
     await waitFor(() => expect(figures()).toHaveLength(1));
 
     const stored = await readDatabase();
@@ -161,24 +217,15 @@ describe('App', () => {
     start();
     await waitFor(() => expect(figures()).toHaveLength(1));
 
-    // Open the lightbox, then the edit form.
-    target.querySelector<HTMLButtonElement>('figure button')!.click();
-    await settle();
-    await waitFor(() => expect(dialog()?.open).toBe(true));
-
+    await openLightbox();
     buttonWithText('Edit')!.click();
     await settle();
     await waitFor(() => expect(target.querySelector('#char-name')).not.toBeNull());
 
-    const nameInput = target.querySelector<HTMLInputElement>('#char-name')!;
-    expect(nameInput.value).toBe('Original');
-    nameInput.value = 'Renamed';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(target.querySelector<HTMLInputElement>('#char-name')!.value).toBe('Original');
+    setName('Renamed');
 
-    target.querySelector<HTMLFormElement>('form')!.dispatchEvent(
-      new Event('submit', { bubbles: true, cancelable: true })
-    );
-
+    submitForm();
     await waitFor(async () => {
       const stored = await readDatabase();
       expect(stored).toHaveLength(1);
@@ -196,15 +243,194 @@ describe('App', () => {
     start();
     await waitFor(() => expect(figures()).toHaveLength(1));
 
-    target.querySelector<HTMLButtonElement>('figure button')!.click();
-    await settle();
-    await waitFor(() => expect(dialog()?.open).toBe(true));
-
+    await openLightbox();
     buttonWithText('Delete')!.click();
     await waitFor(async () => expect(await readDatabase()).toHaveLength(0));
     await settle();
 
     expect(figures()).toHaveLength(0);
     expect(dialog()).toBeNull();
+  });
+
+  it('distinguishes loading from an empty ready library', async () => {
+    await seedDatabase([]);
+
+    start();
+    // The first paint is the loading state, not an empty gallery.
+    expect(target.textContent).toContain('Loading your character library');
+    expect(target.textContent).not.toContain('No characters yet');
+
+    await waitFor(() => expect(target.textContent).toContain('No characters yet'));
+    expect(target.textContent).not.toContain('Loading your character library');
+  });
+
+  it('shows a failed start with Retry, keeps Add unavailable, and recovers on Retry', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    const workingIndexedDb = globalThis.indexedDB;
+    vi.stubGlobal('indexedDB', {
+      open() {
+        throw new Error('storage blocked');
+      },
+    });
+
+    start();
+    await waitFor(() =>
+      expect(target.textContent).toContain('Could not open your character library')
+    );
+    expect(target.textContent).toContain('storage blocked');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
+    expect(figures()).toHaveLength(0);
+    expect(target.querySelector('[role="alert"]')).not.toBeNull();
+
+    vi.stubGlobal('indexedDB', workingIndexedDb);
+    buttonWithText('Retry')!.click();
+
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    expect(target.textContent).toContain('Aria');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(false);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps the draft and the form open when a save fails, then saves on retry', async () => {
+    await seedDatabase([]);
+
+    start();
+    await waitForReady();
+    buttonWithText('+ Add Character')!.click();
+    await settle();
+
+    setName('Kept Draft');
+    setDescription('Keep this description');
+    await chooseImage();
+    const chosenImage = preview()!.getAttribute('src');
+
+    const restore = await breakStoreMethod('put');
+    submitForm();
+    await waitFor(() =>
+      expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+        'Could not save the character'
+      )
+    );
+
+    // Nothing was stored, and the draft, the form, and the image are intact.
+    expect(await readDatabase()).toHaveLength(0);
+    expect(figures()).toHaveLength(0);
+    expect(target.querySelector<HTMLInputElement>('#char-name')!.value).toBe('Kept Draft');
+    expect(target.querySelector<HTMLTextAreaElement>('#char-desc')!.value).toBe(
+      'Keep this description'
+    );
+    expect(preview()?.getAttribute('src')).toBe(chosenImage);
+    expect(target.querySelector<HTMLFormElement>('form')).not.toBeNull();
+
+    restore();
+    submitForm();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const stored = await readDatabase();
+    expect(stored).toHaveLength(1);
+    expect(stored[0].name).toBe('Kept Draft');
+  });
+
+  it('keeps a Character and shows a notice after the lightbox closes on a delete failure', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Doomed' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const restore = await breakStoreMethod('delete');
+    buttonWithText('Delete')!.click();
+    await waitFor(() =>
+      expect(target.textContent).toContain('Could not delete the Character')
+    );
+    await settle();
+
+    // The lightbox closed, the card is still there, and the notice stayed.
+    expect(dialog()).toBeNull();
+    expect(figures()).toHaveLength(1);
+    expect(target.textContent).toContain('Doomed');
+    expect(target.querySelector('[role="status"]')?.textContent).toContain(
+      'Could not delete the Character'
+    );
+
+    restore();
+    expect(await readDatabase()).toHaveLength(1);
+  });
+
+  it('writes nothing when the delete confirmation is canceled', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Doomed' })]);
+    vi.mocked(confirm).mockReturnValueOnce(false);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    buttonWithText('Delete')!.click();
+    await settle();
+
+    expect(figures()).toHaveLength(1);
+    expect(await readDatabase()).toHaveLength(1);
+    expect(target.textContent).not.toContain('Could not delete the Character');
+  });
+
+  it('keeps the records and selection when a batch delete is canceled or fails', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+    selectCard('Aria');
+    selectCard('Bram');
+    await settle();
+    expect(target.textContent).toContain('2 selected');
+
+    // A canceled confirmation changes nothing.
+    vi.mocked(confirm).mockReturnValueOnce(false);
+    buttonWithText('Delete Selected')!.click();
+    await settle();
+    expect(target.textContent).toContain('2 selected');
+    expect(figures()).toHaveLength(2);
+    expect(await readDatabase()).toHaveLength(2);
+
+    // A failed delete keeps every record and the selection for a retry.
+    const restore = await breakStoreMethod('delete');
+    buttonWithText('Delete Selected')!.click();
+    await waitFor(() => expect(target.textContent).toContain('Could not delete the selected'));
+    await settle();
+
+    expect(figures()).toHaveLength(2);
+    expect(target.textContent).toContain('2 selected');
+    expect(target.textContent).toContain('Aria');
+    expect(target.textContent).toContain('Bram');
+    expect(await readDatabase()).toHaveLength(2);
+
+    restore();
+  });
+
+  it('clears the selection and leaves select mode after a committed batch delete', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+    selectCard('Aria');
+    selectCard('Bram');
+    await settle();
+
+    buttonWithText('Delete Selected')!.click();
+    await waitFor(async () => expect(await readDatabase()).toHaveLength(0));
+    await settle();
+
+    expect(figures()).toHaveLength(0);
+    expect(target.querySelectorAll('input[aria-label^="Select "]')).toHaveLength(0);
+    expect(buttonWithText('Select')).toBeDefined();
+    expect(target.textContent).not.toContain('selected');
   });
 });

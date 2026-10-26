@@ -23,7 +23,7 @@ npm run build          # vite build -> dist/ (does NOT type-check)
 
 Definition of done for a code change:
 
-1. `npm test` passes (79 tests, 8 files at the time of writing).
+1. `npm test` passes (120 tests, 9 files at the time of writing).
 2. `npm run check` reports `0 errors and 0 warnings`.
 3. `npm run build` succeeds.
 4. The matching document is updated.
@@ -38,8 +38,10 @@ No CI gate to hide behind locally, and no linter or formatter: run the three com
 |---|---|---|
 | `index.html` | Entry page, loads `src/main.ts` | Rarely |
 | `src/main.ts` | `mount(App, { target: '#app' })` | Never |
-| `src/App.svelte` | DB connection, `characters` array, save/delete, dimension backfill | Persistence, list lifecycle |
+| `src/App.svelte` | Page shell: renders the library state, the delete notice, the form, and the gallery | Page layout, start-up states, delete notice |
 | `src/types.ts` | `Character` interface | Any data-shape question |
+| `src/character-library.svelte.ts` | `CharacterLibrary` class: the canonical list, start-up and Retry, record rules, mutation ordering, delete outcomes, legacy size repair | Any persistence, list, or record-rule change |
+| `src/library-error.ts` | `LibraryError` + `LibraryErrorKind`, no storage imports | Error-kind branching in a component |
 | `src/db.ts` | IndexedDB open/add/delete/getAll | Storage behavior |
 | `src/id.ts` | `generateId()` | Id format |
 | `src/image.ts` | `measureImage(src)` | Intrinsic size logic |
@@ -56,16 +58,19 @@ No CI gate to hide behind locally, and no linter or formatter: run the three com
 | `tests/*` | Vitest suites + helpers | Any behavior change |
 | `docs/WIKI.md` | Developer wiki | Before changing architecture |
 
-Recommended reading order for first contact: `src/types.ts` -> `src/App.svelte` -> `src/components/Gallery.svelte` -> `src/gallery-utils.ts` -> `src/db.ts` -> the remaining components.
+Recommended reading order for first contact: `src/types.ts` -> `src/character-library.svelte.ts` -> `src/App.svelte` -> `src/components/Gallery.svelte` -> `src/gallery-utils.ts` -> `src/db.ts` -> the remaining components.
 
 Component graph:
 
 ```mermaid
 graph TD
   main --> App
+  App --> characterLibrary
   App --> Gallery
   App --> CharacterForm
-  App --> db
+  characterLibrary --> db
+  characterLibrary --> id
+  characterLibrary --> image
   Gallery --> GalleryToolbar
   Gallery --> MasonryGrid
   Gallery --> Lightbox
@@ -122,6 +127,45 @@ export class SelectedImage {
   dispose(): void;
 }
 
+// src/character-library.svelte.ts
+export const REPAIR_WARNING: string;
+export type LibraryStatus = 'loading' | 'ready' | 'failed';
+export interface CharacterDraft {
+  id?: string; name: string; description: string; image: string;
+  width?: number; height?: number;
+}
+export interface CharacterLibraryDeps {
+  openDatabase?: (name: string) => Promise<IDBDatabase>;
+  readAll?: (db: IDBDatabase) => Promise<Character[]>;
+  write?: (db: IDBDatabase, character: Character) => Promise<void>;
+  remove?: (db: IDBDatabase, id: string) => Promise<void>;
+  removeMany?: (db: IDBDatabase, ids: string[]) => Promise<void>;
+  measure?: (src: string) => Promise<{ width: number; height: number }>;
+  generateId?: () => string;
+  now?: () => number;
+  databaseName?: string;
+  logger?: Pick<Console, 'warn' | 'error'>;
+}
+export class CharacterLibrary {
+  constructor(deps?: CharacterLibraryDeps);
+  readonly characters: Character[];
+  readonly status: LibraryStatus;
+  readonly failureMessage: string | null;
+  readonly repairWarning: string | null;
+  initialize(): Promise<void>;
+  save(draft: CharacterDraft): Promise<void>;
+  remove(id: string): Promise<void>;
+  removeMany(ids: string[]): Promise<void>;
+  dispose(): void;
+}
+
+// src/library-error.ts (re-exported by character-library.svelte.ts)
+export type LibraryErrorKind = 'unavailable' | 'missing-target' | 'write-failed';
+export class LibraryError extends Error {
+  readonly kind: LibraryErrorKind;
+  readonly cause: unknown;
+}
+
 // src/gallery-utils.ts
 export const PAGE_SIZE = 24;
 export type SortMode = 'newest' | 'oldest' | 'name';
@@ -147,20 +191,24 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
-| `App` | none | Only writer of the database. Owns `characters`. |
+| `App` | none | Page shell. Constructs one `CharacterLibrary`, calls `initialize` on mount, disposes on destroy. Renders loading, failure with Retry, the delete notice, the form, and the gallery. No storage knowledge, no record building. |
 | `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>` | Owns view state and lightbox selection. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
 | `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the aspect ratio from `width`/`height`. |
 | `Lightbox` | `character: Character \| null`, `characters`, `onEdit(id)`, `onDelete(id)`, `onClose()`, `onSelect(id)` | `characters` is the filtered list, so arrows move within the filter. |
-| `CharacterForm` | `editingCharacter: Character \| null`, `onSave(data) => Promise<void>`, `onCancel()` | Mounted per target by `{#key}`. `onSave` rejects on failure. |
+| `CharacterForm` | `editingCharacter: Character \| null`, `onSave(draft: CharacterDraft) => Promise<void>`, `onCancel()` | Mounted per target by `{#key}`. `onSave` rejects with a `LibraryError`; a `missing-target` rejection gets its own message. Imports the error from `library-error.ts`, not from the library module. |
 
-Component-local state (do not duplicate it in a parent):
+State ownership (one owner per item; do not duplicate it):
 
-- `Gallery`: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore`.
-- `Lightbox`: `dialogEl` (`$state`), `triggerButton`, `toreDown`; derived `index`, `hasPrevious`, `hasNext`.
-- `CharacterForm`: `name`, `description`, `saving`, `saveError`, and `preparation` (one `SelectedImage`).
-- `App`: `db`, `characters`, `editingCharacter`, `showForm`, `loading`.
+| Owner | State | Notes |
+|---|---|---|
+| `CharacterLibrary` | `characters`, `status`, `failureMessage`, `repairWarning` | The canonical list and the only writer. One instance per page lifetime. |
+| `CharacterLibrary` (internal) | operation chain, repair attempt keys, per-record image generations, database connection, lifetime counter | Private. Never assert on these in tests; observe the public state and the storage. |
+| `App` | `editingCharacter`, `showForm`, `deleteNotice`, one library instance | Presentation and navigation only. |
+| `Gallery` | `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore` | View state. |
+| `Lightbox` | `dialogEl` (`$state`), `triggerButton`, `toreDown`; derived `index`, `hasPrevious`, `hasNext` | Dialog and focus. |
+| `CharacterForm` | `name`, `description`, `saving`, `saveError`, one `SelectedImage` | Draft and save locking. |
 
 ---
 
@@ -169,22 +217,32 @@ Component-local state (do not duplicate it in a parent):
 MUST hold after any change.
 
 1. `Character.id` is the IndexedDB key path (`db.ts`, store `characters`, keyPath `id`). Ids are opaque, unique, and never derived from array position.
-2. `createdAt` is set once. `App.handleSave` copies the stored value when `data.id` matches an existing record. Never write `Date.now()` over an existing record.
-3. `width`/`height` describe `image`. If unknown, leave both `undefined` and let `App.backfillDimensions` measure them. Stale values distort the reserved `aspect-ratio`. A partial pair is normalized to two absent dimensions.
+2. `CharacterLibrary` is the only writer of Character records and the only owner of the canonical list. `App`, `Gallery`, and `CharacterForm` never import `db.ts`, build a record, reload the list, or start storage work. A review that finds any of those in the shell is a regression.
+3. A mutation resolves only after the storage transaction commits and the committed record is published. A rejection always means nothing was committed, and storage and the canonical list still agree. A resolved mutation never triggers a full-library read.
+4. `createdAt` is set once. `CharacterLibrary` copies the stored value during an edit and never re-derives it from the clock. Never write `Date.now()` over an existing record.
+5. `width`/`height` describe `image`. If unknown, leave both `undefined` and let the library's background repair measure them. Stale values distort the reserved `aspect-ratio`. A partial pair is normalized to two absent dimensions.
+   - A draft with no complete pair supplies no size; a partial pair collapses to no size. With no size supplied and the image unchanged, the stored pair is kept. Otherwise the record has no size.
+   - A stored pair survives a save only while the image is unchanged. A replaced image never inherits the previous dimensions.
    - `SelectedImage` publishes only the current selection. A generation token guards every asynchronous state write; `discard` and `dispose` invalidate outstanding work.
    - `SelectedImage.status` stays `preparing` until read and measurement settle. `canSubmit` is true only for `idle` or `ready` with a non-empty image. A read failure blocks submission; a measurement failure allows it with both dimensions absent.
-4. `image` is a base64 image data URL. It is required for a new record.
-5. Sort and filter never mutate their input array (`sortCharacters` copies; `filterCharacters` returns the input itself for a blank term).
-6. Filter and sort tolerate records with missing `name` or `description`.
-7. `PAGE_SIZE` lives in `src/gallery-utils.ts`. Do not re-hard-code 24.
-8. `visibleCount` resets to `PAGE_SIZE` on a search or sort change.
-9. `Gallery.sentinelEl` stays `$state`. The `$effect` must read it so the observer attaches to the live element and disconnects from a replaced one. See `tests/gallery-scroll.test.ts`.
-10. `Lightbox` teardown runs only from the dialog `close` event. Do not close from a keydown handler or the DOM and the parent state can diverge.
-11. Every DB write promise rejects on `error` and on `abort`. A pending-forever promise is a bug.
-12. `downloadCharacterImage` always emits PNG and always runs the name through `sanitizeFilename`. The object URL is released ~60 s after the click, not immediately.
-13. Reduced motion (`prefers-reduced-motion`) gates durations and `transform`. It MUST NOT gate the visibility of a control (the hover label and the download button stay reachable).
-14. No runtime dependencies. `dependencies` must stay absent unless there is an explicit decision to add one.
-15. `npm run check` stays at 0 errors and 0 warnings. Do not delete or weaken a test to make a change pass.
+6. An edit whose identity is not in the canonical list rejects with `missing-target` and writes nothing. Do not add a save-as-new recovery path.
+7. Commits and publications run on one serialized chain in acceptance order. Image decoding never enters the chain. A start-up read waits for writes accepted before the call, then runs outside the chain, and its publication joins the chain; a newer `initialize` never waits for an older pending read. A failed step must not poison the chain.
+8. Background repair writes only into the record as it stands now, and only while the record exists, still shows the measured image, is still the same image generation, and still has no size. Attempts are bounded once per identity and image generation per initialized lifetime. A failure leaves both dimensions absent, logs, and sets one `repairWarning`.
+9. `dispose` publishes nothing afterwards and rejects new mutations, but an accepted write still commits and its promise still settles. Do not pretend to roll back a committed write.
+10. `image` is a base64 image data URL. It is required for a new record.
+11. Sort and filter never mutate their input array (`sortCharacters` copies; `filterCharacters` returns the input itself for a blank term).
+12. Filter and sort tolerate records with missing `name` or `description`.
+13. `PAGE_SIZE` lives in `src/gallery-utils.ts`. Do not re-hard-code 24.
+14. `visibleCount` resets to `PAGE_SIZE` on a search or sort change.
+15. `Gallery.sentinelEl` stays `$state`. The `$effect` must read it so the observer attaches to the live element and disconnects from a replaced one. See `tests/gallery-scroll.test.ts`.
+16. `Lightbox` teardown runs only from the dialog `close` event. Do not close from a keydown handler or the DOM and the parent state can diverge.
+17. Every DB write promise rejects on `error` and on `abort`. A pending-forever promise is a bug.
+18. `downloadCharacterImage` always emits PNG and always runs the name through `sanitizeFilename`. The object URL is released ~60 s after the click, not immediately.
+19. Reduced motion (`prefers-reduced-motion`) gates durations and `transform`. It MUST NOT gate the visibility of a control (the hover label and the download button stay reachable).
+20. Start-up is three distinct states. Loading is not an empty library. A failed start keeps Retry and the reason on screen and keeps Add and edit entry points unavailable. Retry never deletes or replaces stored records.
+21. A delete failure is announced in one place in the page shell and keeps the records and the batch selection. A committed batch delete clears the selection and leaves select mode.
+22. No runtime dependencies. `dependencies` must stay absent unless there is an explicit decision to add one.
+23. `npm run check` stays at 0 errors and 0 warnings. Do not delete or weaken a test to make a change pass.
 
 ---
 
@@ -192,7 +250,9 @@ MUST hold after any change.
 
 | Change | Files to touch | Tests to extend |
 |---|---|---|
-| Add/alter a `Character` field | `src/types.ts`, `src/App.svelte` (save + backfill), `src/components/CharacterForm.svelte`; `src/db.ts` only for a store/index change | `tests/db.test.ts`, `tests/app.test.ts` |
+| Add/alter a `Character` field | `src/types.ts`, `src/character-library.svelte.ts` (record rules + repair), `src/components/CharacterForm.svelte`; `src/db.ts` only for a store/index change | `tests/character-library.test.ts`, `tests/db.test.ts`, `tests/app.test.ts` |
+| Persistence rules, start-up, delete outcomes, or size repair | `src/character-library.svelte.ts` | `tests/character-library.test.ts`, `tests/app.test.ts` |
+| Page layout, start-up states, or the delete notice | `src/App.svelte` | `tests/app.test.ts` |
 | Schema or index change | `src/db.ts` (`DB_VERSION`, `onupgradeneeded`) | `tests/db.test.ts` |
 | Search behavior | `src/gallery-utils.ts` | `tests/gallery-utils.test.ts` |
 | Sort behavior or a new mode | `src/gallery-utils.ts` (`SortMode`, `sortCharacters`), `src/components/GalleryToolbar.svelte` (option) | `tests/gallery-utils.test.ts` |
@@ -219,7 +279,8 @@ Helpers available:
 - `tests/fixtures.ts`: `PNG_1X1`, `makeCharacter(index, overrides?)`, `makeCharacters(count, startIndex?)`.
 - `tests/GalleryHarness.svelte`: mounts `Gallery`, exposes `setCharacters(next)`.
 - `tests/selected-image.test.ts`: controlled `readFile` and `measure` promises for the preparation module.
-- `tests/character-form.test.ts`: a controlled `FileReader` and `Image` for the mounted form.
+- `tests/character-library.test.ts`: constructs `CharacterLibrary` with the real `db.ts` helpers against a unique `fake-indexeddb` database per test. Controls measurement, identity, the clock, and held writes; asserts the canonical list, the start-up state, the repair warning, and storage.
+- `tests/character-form.test.ts`: a controlled `FileReader` and `Image` for the mounted form. It also rejects with a `LibraryError` to witness the missing-target message.
 - A manual real-browser smoke check ran in headless Chrome 156 on Windows against the production build. It covers real file reading and image decoding through programmatic file-input assignment, same-file recovery, and the accessible feedback markup. It does not exercise the native picker dialog or a screen-reader announcement. It is not part of `npm test`; see WIKI section 13.
 - `settle()` pattern (copy from `tests/gallery-scroll.test.ts`): `flushSync()` + `await tick()` in a loop. Use it after any change that starts a transition.
 - `vi.waitFor(fn, { timeout, interval })` for promise-driven UI (database reads, `FileReader`).
@@ -259,8 +320,11 @@ Pitfalls:
 | Code | Why it exists |
 |---|---|
 | `Gallery.svelte`: `$effect` reads `sentinelEl` | The sentinel appears only after a page is full. Without a reactive read the observer is created once and never reattached, so load-more dies silently. Regression: `tests/gallery-scroll.test.ts`. |
-| `App.svelte`: backfill re-reads the record and skips when `image` changed | The decode is async; a concurrent edit was previously overwritten by the stale record. |
-| `App.svelte`: `createdAt: existing?.createdAt ?? Date.now()` | Editing previously reset the creation time and reordered the gallery. |
+| `character-library.svelte.ts`: operation chain and commit-then-publish | Every write and its publication run in one serialized step, so an older result cannot land after a newer one and there is no full reload after a save. |
+| `character-library.svelte.ts`: repair merges into the current record | The decode is slow and the user can edit meanwhile. Writing the snapshot back would revert a newer name or description. Regression: `tests/character-library.test.ts`. |
+| `character-library.svelte.ts`: attempt key is identity plus image generation | An ordinary publication must not re-attempt a failed measurement, a replaced image must be eligible again, and a fresh start must try once more. |
+| `character-library.svelte.ts`: mutations reject while unavailable | The page shell used to swallow a save with no storage, which lost the draft without a message. Persistence rejection is the second line of defence behind the ready-state gating. |
+| `App.svelte`: delete notice lives in the shell | The lightbox closes before the delete runs, so a failure shown inside it would disappear. |
 | `CharacterForm.svelte`: `untrack(() => editingCharacter?.…)` | Deliberate one-time snapshot. `App.svelte` wraps the form in `{#key editingCharacter?.id ?? 'new'}`, so each target gets a fresh instance. |
 | `selected-image.svelte.ts`: generation token checked after every `await` | File reads and image measurement can finish out of order. Without the check, an older read could replace the newer preview or submit the wrong image. Regression: `tests/selected-image.test.ts`, `tests/character-form.test.ts`. |
 | `selected-image.svelte.ts`: a read failure restores the stored preview but keeps `status: 'failed'` | The stored image stays visible for context, but `canSubmit` stays false. This prevents a silent fallback after an explicit replacement choice. |

@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import CharacterForm from '../src/components/CharacterForm.svelte';
+import { LibraryError } from '../src/character-library.svelte';
 import type { Character } from '../src/types';
 import { deferred, makeCharacter, makeFile } from './fixtures';
 
@@ -486,5 +487,30 @@ describe('CharacterForm image preparation', () => {
     expect(target.querySelector('[role="alert"]')?.textContent).toContain(
       'Could not read the selected image'
     );
+  });
+
+  it('keeps the draft and names a refused edit as its own failure', async () => {
+    const onSave = vi
+      .fn<(data: SaveData) => Promise<void>>()
+      .mockRejectedValueOnce(new LibraryError('missing-target', 'The target is gone.'))
+      .mockResolvedValueOnce(undefined);
+    mountForm(makeCharacter(1, { name: 'Stored', image: STORED, width: 5, height: 6 }), onSave);
+    await settle();
+
+    submit();
+    await settle();
+
+    const failure = target.querySelector('[role="alert"]');
+    expect(failure?.textContent).toContain('no longer in the library');
+    // A refused edit must not read as a storage fault.
+    expect(failure?.textContent).not.toContain('browser storage may be full');
+    expect(target.querySelector<HTMLInputElement>('#char-name')!.value).toBe('Stored');
+    expect(saveButton().disabled).toBe(false);
+    expect(preview()?.getAttribute('src')).toBe(STORED);
+
+    submit();
+    await settle();
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
   });
 });

@@ -1,111 +1,83 @@
 <script lang="ts">
-  import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany } from './db';
+  import { onDestroy, onMount } from 'svelte';
+  import { CharacterLibrary, type CharacterDraft } from './character-library.svelte';
   import type { Character } from './types';
-  import { generateId } from './id';
-  import { measureImage } from './image';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
 
-  let db: IDBDatabase | null = $state(null);
-  let characters: Character[] = $state([]);
-  let editingCharacter: Character | null = $state(null);
+  const DELETE_FAILED = 'Could not delete the Character. It is still in your library.';
+  const BATCH_DELETE_FAILED =
+    'Could not delete the selected Characters. Nothing was removed, ' +
+    'so your selection is unchanged.';
+
+  // One library per page. It is the only writer of Character records and the
+  // only owner of the list; this shell renders what the library publishes.
+  const library = new CharacterLibrary();
+
+  let editingCharacter = $state<Character | null>(null);
   let showForm = $state(false);
-  let loading = $state(true);
+  // Kept in the page shell so a delete failure survives closing the lightbox.
+  let deleteNotice = $state<string | null>(null);
 
-  async function backfillDimensions() {
-    if (!db) return;
-    const needsBackfill = characters.filter((c) => !c.width || !c.height);
+  onMount(() => {
+    void library.initialize();
+  });
 
-    for (const char of needsBackfill) {
-      try {
-        const { width, height } = await measureImage(char.image);
+  onDestroy(() => library.dispose());
 
-        // The list can change while the image decodes, so re-read the record and
-        // leave it alone if it was edited or deleted in the meantime.
-        const current = characters.find((c) => c.id === char.id);
-        if (!current || current.image !== char.image) continue;
-
-        const updated = { ...current, width, height };
-        await dbAdd(db, updated);
-        const index = characters.findIndex((c) => c.id === char.id);
-        if (index !== -1) {
-          characters[index] = updated;
-        }
-      } catch (e) {
-        console.warn(`Failed to measure dimensions for ${char.name}:`, e);
-      }
-    }
-  }
-
-  async function loadCharacters() {
-    if (!db) return;
-    characters = await dbGetAll<Character>(db);
-    loading = false;
-    // Backfill dimensions for legacy records
-    void backfillDimensions();
-  }
-
-  async function handleSave(data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) {
-    if (!db) return;
-
-    // Editing a character must keep its original creation time, otherwise saving
-    // an edit would reorder the gallery.
-    const existing = data.id ? characters.find((c) => c.id === data.id) : undefined;
-
-    const character: Character = {
-      id: data.id ?? generateId(),
-      name: data.name,
-      description: data.description,
-      image: data.image,
-      width: data.width,
-      height: data.height,
-      createdAt: existing?.createdAt ?? Date.now(),
-    };
-
-    await dbAdd(db, character);
-    showForm = false;
+  async function handleSave(draft: CharacterDraft) {
+    // A rejection reaches the form, which keeps the draft and shows its message.
+    await library.save(draft);
+    deleteNotice = null;
     editingCharacter = null;
-    await loadCharacters();
+    showForm = false;
   }
 
   async function handleDelete(id: string) {
-    if (!db) return;
-    if (confirm('Delete this character?')) {
-      await dbDelete(db, id);
-      characters = characters.filter((c) => c.id !== id);
+    if (!confirm('Delete this character?')) return;
+    try {
+      await library.remove(id);
+      deleteNotice = null;
+    } catch (error) {
+      console.error('Failed to delete the character:', error);
+      deleteNotice = DELETE_FAILED;
     }
   }
 
   async function handleDeleteMany(ids: string[]): Promise<boolean> {
-    if (!db) return false;
-    if (confirm(`Delete ${ids.length} characters?`)) {
-      await dbDeleteMany(db, ids);
-      characters = characters.filter((c) => !ids.includes(c.id));
+    if (!confirm(`Delete ${ids.length} characters?`)) return false;
+    try {
+      await library.removeMany(ids);
+      deleteNotice = null;
       return true;
+    } catch (error) {
+      console.error('Failed to delete the selected characters:', error);
+      deleteNotice = BATCH_DELETE_FAILED;
+      return false;
     }
-    return false;
+  }
+
+  function startAdd() {
+    if (library.status !== 'ready') return;
+    editingCharacter = null;
+    showForm = true;
   }
 
   function startEdit(id: string) {
-    const char = characters.find((c) => c.id === id);
-    if (char) {
-      editingCharacter = char;
-      showForm = true;
-    }
+    const character = library.characters.find((candidate) => candidate.id === id);
+    if (!character) return;
+    editingCharacter = character;
+    showForm = true;
   }
 
-  async function init() {
-    try {
-      db = await openDB('character-gallery');
-      await loadCharacters();
-    } catch (error) {
-      console.error('Failed to initialize database:', error);
-      loading = false;
-      alert('Failed to initialize the gallery. Please refresh.');
-    }
+  function cancelForm() {
+    showForm = false;
+    editingCharacter = null;
   }
 
-  init();
+  function retry() {
+    void library.initialize();
+  }
 </script>
 
 <div class="min-h-screen bg-bg-primary text-zinc-200">
@@ -114,8 +86,9 @@
       <h1 class="text-accent text-2xl font-bold">Character Gallery</h1>
       <button
         type="button"
-        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-accent-hover hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        onclick={() => { editingCharacter = null; showForm = true; }}
+        disabled={library.status !== 'ready'}
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-accent-hover hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
+        onclick={startAdd}
       >
         + Add Character
       </button>
@@ -123,18 +96,63 @@
   </header>
 
   <main class="px-4 py-8 sm:px-6 lg:px-10">
+    {#if deleteNotice}
+      <div
+        role="status"
+        aria-live="polite"
+        class="mb-6 flex items-start justify-between gap-4 rounded-xl border border-danger/50 bg-bg-secondary px-4 py-3"
+      >
+        <p class="text-sm text-danger">{deleteNotice}</p>
+        <button
+          type="button"
+          onclick={() => (deleteNotice = null)}
+          class="rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        >
+          Dismiss
+        </button>
+      </div>
+    {/if}
+
     {#if showForm}
       {#key editingCharacter?.id ?? 'new'}
         <CharacterForm
           editingCharacter={editingCharacter}
           onSave={handleSave}
-          onCancel={() => { showForm = false; editingCharacter = null; }}
+          onCancel={cancelForm}
         />
       {/key}
-    {:else if loading}
-      <p class="text-center text-zinc-400 py-12">Loading...</p>
+    {:else if library.status === 'loading'}
+      <p class="text-center text-zinc-400 py-12" role="status">Loading your character library...</p>
+    {:else if library.status === 'failed'}
+      <div
+        role="alert"
+        class="mx-auto max-w-lg rounded-xl border border-danger/50 bg-bg-secondary p-6 text-center"
+      >
+        <h2 class="mb-2 text-lg font-bold text-danger">Could not open your character library</h2>
+        <p class="mb-1 text-zinc-300">
+          Your Characters are still stored in this browser. Try again before you leave this page.
+        </p>
+        {#if library.failureMessage}
+          <p class="mb-4 break-words text-sm text-zinc-400">{library.failureMessage}</p>
+        {/if}
+        <button
+          type="button"
+          onclick={retry}
+          class="rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        >
+          Retry
+        </button>
+      </div>
     {:else}
-      <Gallery characters={characters} onEdit={startEdit} onDelete={handleDelete} onDeleteMany={handleDeleteMany} />
+      {#if library.repairWarning}
+        <p class="mb-6 text-center text-sm text-warning" role="status">{library.repairWarning}</p>
+      {/if}
+      <Gallery
+        characters={library.characters}
+        onEdit={startEdit}
+        onDelete={handleDelete}
+        onDeleteMany={handleDeleteMany}
+      />
     {/if}
   </main>
 </div>

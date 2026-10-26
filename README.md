@@ -100,7 +100,9 @@ Because the app is client-side only:
 ```
 src/
   main.ts                    Svelte mount entry point
-  App.svelte                 State, load, save, delete, dimension backfill
+  App.svelte                 Page shell: start-up states and the delete notice
+  character-library.svelte.ts  The Character library, the only writer of records
+  library-error.ts           The error kinds a library mutation can refuse
   db.ts                      IndexedDB open plus CRUD helpers
   gallery-utils.ts           Filter, sort, and page-size rules
   download.ts                Data URL parsing and image export

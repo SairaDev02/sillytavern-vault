@@ -8,6 +8,58 @@ function getTestDbName(): string {
   return `character-gallery-test-${testDbCounter++}`;
 }
 
+interface AbortArm {
+  /** Recorded transaction events, one entry per transaction the helper created. */
+  events: string[][];
+  restore: () => void;
+}
+
+/**
+ * Abort the next transaction a storage helper creates, after the given number
+ * of requests have succeeded but before the transaction commits. The
+ * transaction is captured at the test boundary, so the helper's own abort
+ * handling is what these tests observe.
+ */
+function abortNextTransaction(db: IDBDatabase, afterRequests = 1): AbortArm {
+  const events: string[][] = [];
+  let remaining = afterRequests;
+  const originalTransaction = db.transaction.bind(db);
+
+  (db as unknown as { transaction: unknown }).transaction = (...args: unknown[]) => {
+    const tx = (originalTransaction as (...a: unknown[]) => IDBTransaction)(...args);
+    const seen: string[] = [];
+    events.push(seen);
+    tx.addEventListener('complete', () => seen.push('complete'));
+    tx.addEventListener('error', () => seen.push('error'));
+    tx.addEventListener('abort', () => seen.push('abort'));
+
+    const realObjectStore = tx.objectStore.bind(tx);
+    (tx as unknown as { objectStore: unknown }).objectStore = (name: string) => {
+      const store = realObjectStore(name as never);
+      for (const method of ['put', 'delete'] as const) {
+        const originalMethod = store[method].bind(store) as (...a: unknown[]) => IDBRequest;
+        (store as unknown as Record<string, unknown>)[method] = (...a: unknown[]) => {
+          const request = originalMethod(...a);
+          request.addEventListener('success', () => {
+            remaining -= 1;
+            if (remaining === 0) tx.abort();
+          });
+          return request;
+        };
+      }
+      return store;
+    };
+    return tx;
+  };
+
+  return {
+    events,
+    restore() {
+      delete (db as unknown as Record<string, unknown>).transaction;
+    },
+  };
+}
+
 function makeCharacter(overrides: Partial<Character> = {}): Character {
   return {
     id: generateId(),
@@ -109,5 +161,62 @@ describe('IndexedDB Character Store', () => {
     const uncloneable = { ...makeCharacter(), image: () => 'not clonable' } as unknown as Character;
 
     await expect(dbAdd(db!, uncloneable)).rejects.toBeTruthy();
+  });
+
+  describe('pre-commit abort', () => {
+    it('rejects an insert and leaves the store unchanged', async () => {
+      const arm = abortNextTransaction(db!, 1);
+
+      await expect(dbAdd(db!, makeCharacter({ name: 'Aborted' }))).rejects.toBeTruthy();
+      arm.restore();
+
+      expect(await dbGetAll<Character>(db!)).toEqual([]);
+      // The isolated witness never sees `complete` or `error`, so the abort
+      // rejection path is the one under test.
+      expect(arm.events).toEqual([['abort']]);
+    });
+
+    it('rejects an overwrite and keeps the stored record', async () => {
+      const original = makeCharacter({ name: 'Original' });
+      await dbAdd(db!, original);
+
+      const arm = abortNextTransaction(db!, 1);
+      await expect(dbAdd(db!, { ...original, name: 'Replaced' })).rejects.toBeTruthy();
+      arm.restore();
+
+      const all = await dbGetAll<Character>(db!);
+      expect(all).toHaveLength(1);
+      expect(all[0].name).toBe('Original');
+    });
+
+    it('rejects a single delete and keeps the record', async () => {
+      const char = makeCharacter({ name: 'Kept' });
+      await dbAdd(db!, char);
+
+      const arm = abortNextTransaction(db!, 1);
+      await expect(dbDelete(db!, char.id)).rejects.toBeTruthy();
+      arm.restore();
+
+      expect(await dbGetAll<Character>(db!)).toHaveLength(1);
+    });
+
+    it('rejects an atomic batch delete and rolls back every request', async () => {
+      const first = makeCharacter({ name: 'First' });
+      const second = makeCharacter({ name: 'Second' });
+      const third = makeCharacter({ name: 'Third' });
+      await dbAdd(db!, first);
+      await dbAdd(db!, second);
+      await dbAdd(db!, third);
+
+      // Abort after both deletes have succeeded, so the rollback is what keeps
+      // the records, not a request that never ran.
+      const arm = abortNextTransaction(db!, 2);
+      await expect(dbDeleteMany(db!, [first.id, third.id])).rejects.toBeTruthy();
+      arm.restore();
+
+      const all = await dbGetAll<Character>(db!);
+      expect(all).toHaveLength(3);
+      expect(all.map((character) => character.name).sort()).toEqual(['First', 'Second', 'Third']);
+    });
   });
 });
