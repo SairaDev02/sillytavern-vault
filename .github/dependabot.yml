@@ -51,3 +51,14 @@ updates:
     labels:
       - dependencies
       - github-actions
+    # The CodeQL steps share one runtime version: `init` writes a configuration
+    # file that `analyze` validates, and the action rejects a version mismatch
+    # before query analysis. Separate PRs (#17, #18) each left one step behind
+    # and both failed CodeQL. Group them so one PR moves both.
+    groups:
+      codeql-action:
+        patterns:
+          # SHA-pinned sub-actions are named owner/repo/path; a tag-pinned one is
+          # named owner/repo only, so cover both shapes.
+          - 'github/codeql-action'
+          - 'github/codeql-action/*'
