@@ -16,6 +16,14 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 When `/to-tickets` publishes tickets from a spec or parent issue, link each ticket to that parent as a **native GitHub sub-issue** in the same run; a `## Parent` line in the body is not the link. Add it with `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`, the child's database id from `gh api repos/<owner>/<repo>/issues/<n> --jq .id`, then read the parent's `.../sub_issues` list to confirm.
 
+### Browser validation
+
+Use [Playwright CLI](https://github.com/microsoft/playwright-cli) for browser interaction, selector inspection, screenshots, and end-to-end flow validation. Consult `playwright-cli --help` and the upstream documentation before browser work.
+
+### Deletion
+
+Delete by explicit path, one named target at a time — never a recursive delete (`rm -rf`, `Remove-Item -Recurse`); when a whole tree must go, name its entries instead.
+
 ### To-Do list
 
 Keep the To-Do list current on multi-step work; a one-shot edit skips it.
