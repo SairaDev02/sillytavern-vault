@@ -109,6 +109,90 @@ describe('App', () => {
       (button) => button.textContent?.trim() === label
     ) as HTMLButtonElement | undefined;
   const dialog = () => target.querySelector('dialog') as HTMLDialogElement | null;
+
+  /** Everything a keyboard user can reach, so a duplicate control shows up. */
+  const KEYBOARD_STOP =
+    'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+  /**
+   * The accessible name these components expose: aria-labelledby, aria-label,
+   * associated labels, then the element's own text.
+   */
+  function accessibleName(element: Element): string {
+    const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const text = labelledBy
+        .split(/\s+/)
+        .map((id) => target.querySelector(`[id="${id}"]`)?.textContent ?? '')
+        .join(' ');
+      if (compact(text)) return compact(text);
+    }
+
+    const ariaLabel = element.getAttribute('aria-label');
+    if (ariaLabel && compact(ariaLabel)) return compact(ariaLabel);
+
+    if (element instanceof HTMLInputElement) {
+      const text = [...(element.labels ?? [])]
+        .map((label) => label.textContent ?? '')
+        .join(' ');
+      if (compact(text)) return compact(text);
+    }
+
+    return compact(element.textContent ?? '');
+  }
+
+  const checkboxes = () => [...target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+
+  /** The selection checkbox whose accessible name identifies `name`. */
+  function checkboxFor(name: string): HTMLInputElement | undefined {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matcher = new RegExp(`\\b${escaped}\\b`);
+    return checkboxes().find((box) => matcher.test(accessibleName(box)));
+  }
+
+  const keyboardStops = (root: ParentNode) =>
+    [...root.querySelectorAll<HTMLElement>(KEYBOARD_STOP)].filter(
+      (element) => !(element as HTMLButtonElement).disabled
+    );
+
+  /** Elements that expose status text to assistive technology. */
+  const liveRegions = () =>
+    [...target.querySelectorAll<HTMLElement>('[role="status"], [aria-live]')].filter(
+      (element) => element.getAttribute('aria-live') !== 'off'
+    );
+
+  const statusText = () =>
+    liveRegions()
+      .map((element) => element.textContent ?? '')
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  /** The figure that holds a Character's selection control. */
+  function figureFor(name: string): HTMLElement | undefined {
+    return (checkboxFor(name)?.closest('figure') as HTMLElement | null) ?? undefined;
+  }
+
+  /** The card face: the pointer target that must activate that Character's checkbox. */
+  function cardFace(name: string): HTMLImageElement {
+    const image = figureFor(name)?.querySelector('img');
+    if (!image) throw new Error(`No card face rendered for ${name}`);
+    return image as HTMLImageElement;
+  }
+
+  async function search(value: string) {
+    const input = target.querySelector<HTMLInputElement>('input[type="search"]')!;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+  }
+
+  function expectFocusOn(element: Element | null | undefined, description: string) {
+    expect(element, `no control found for ${description}`).toBeTruthy();
+    expect(document.activeElement, `focus should be on ${description}`).toBe(element);
+  }
   const preview = () =>
     target.querySelector<HTMLImageElement>('img[alt="Preview of the selected character"]');
 
@@ -149,7 +233,8 @@ describe('App', () => {
   }
 
   async function openLightbox() {
-    target.querySelector<HTMLButtonElement>('figure button')!.click();
+    // The card face is the pointer target for opening a Character.
+    target.querySelector<HTMLImageElement>('figure img')!.click();
     await settle();
     await waitFor(() => expect(dialog()?.open).toBe(true));
   }
@@ -159,10 +244,11 @@ describe('App', () => {
     await settle();
   }
 
+  /** Activate a Character's selection control the way a pointer user would. */
   function selectCard(name: string) {
-    const box = target.querySelector<HTMLInputElement>(`input[aria-label="Select ${name}"]`)!;
-    box.checked = true;
-    box.dispatchEvent(new Event('change', { bubbles: true }));
+    const box = checkboxFor(name);
+    if (!box) throw new Error(`No selection checkbox for ${name}`);
+    box.click();
   }
 
   it('renders the characters stored in the database', async () => {
@@ -395,6 +481,11 @@ describe('App', () => {
     expect(target.textContent).toContain('2 selected');
     expect(figures()).toHaveLength(2);
     expect(await readDatabase()).toHaveLength(2);
+    // Both Characters stay checked, so a retry needs no re-selection.
+    expect(checkboxFor('Aria')?.checked).toBe(true);
+    expect(checkboxFor('Bram')?.checked).toBe(true);
+    expect(buttonWithText('Delete Selected')).toBeDefined();
+    expect(buttonWithText('Cancel')).toBeDefined();
 
     // A failed delete keeps every record and the selection for a retry.
     const restore = await breakStoreMethod('delete');
@@ -407,8 +498,198 @@ describe('App', () => {
     expect(target.textContent).toContain('Aria');
     expect(target.textContent).toContain('Bram');
     expect(await readDatabase()).toHaveLength(2);
+    // The mode and the checked selection survive the rejection.
+    expect(checkboxFor('Aria')?.checked).toBe(true);
+    expect(checkboxFor('Bram')?.checked).toBe(true);
+    expect(buttonWithText('Delete Selected')).toBeDefined();
+    expect(target.querySelector('[role="status"]')?.textContent).toContain(
+      'Could not delete the selected'
+    );
 
     restore();
+  });
+
+  it('renders one native checkbox and one keyboard stop per Character in selection mode', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+    expect(checkboxes()).toHaveLength(2);
+
+    for (const name of ['Aria', 'Bram']) {
+      const box = checkboxFor(name);
+      if (!box) throw new Error(`No selection checkbox for ${name}`);
+
+      // The name identifies the selection action and the Character.
+      expect(accessibleName(box)).toMatch(/select/i);
+
+      // One keyboard stop per Character: no second, independently focusable toggle.
+      const stops = keyboardStops(figureFor(name)!);
+      expect(stops, `keyboard stops for ${name}`).toHaveLength(1);
+      expect(stops[0]).toBe(box);
+    }
+  });
+
+  it('toggles a Character once from the card face and from the check indicator', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+
+    cardFace('Aria').click();
+    await settle();
+    expect(checkboxFor('Aria')?.checked).toBe(true);
+    expect(checkboxFor('Bram')?.checked).toBe(false);
+    expect(dialog()).toBeNull();
+
+    // One activation is one toggle: the card face does not immediately undo itself.
+    cardFace('Aria').click();
+    await settle();
+    expect(checkboxFor('Aria')?.checked).toBe(false);
+    expect(dialog()).toBeNull();
+
+    // The visible indicator operates the same checkbox.
+    checkboxFor('Aria')!.click();
+    await settle();
+    expect(checkboxFor('Aria')?.checked).toBe(true);
+    expect(dialog()).toBeNull();
+
+    checkboxFor('Aria')!.click();
+    await settle();
+    expect(checkboxFor('Aria')?.checked).toBe(false);
+  });
+
+  it('exposes the selection count as status information', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+    expect(statusText()).toMatch(/selection mode|selecting/i);
+
+    selectCard('Aria');
+    await settle();
+    expect(statusText()).toMatch(/1\s+selected/i);
+
+    selectCard('Bram');
+    await settle();
+    expect(statusText()).toMatch(/2\s+selected/i);
+  });
+
+  it('exposes a selection-mode entry cue when the library is empty', async () => {
+    await seedDatabase([]);
+
+    start();
+    await waitForReady();
+    await enterSelectMode();
+
+    expect(statusText()).toMatch(/selection mode|selecting/i);
+  });
+
+  it('focuses the first rendered checkbox of the filtered list without selecting it', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Apple' }),
+      makeCharacter(2, { name: 'Apricot' }),
+      makeCharacter(3, { name: 'Banana' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(3));
+
+    await search('ap');
+    expect(figures()).toHaveLength(2);
+
+    await enterSelectMode();
+    await settle();
+
+    // Newest first, so Apricot leads the filtered document order.
+    const first = checkboxes()[0];
+    expect(accessibleName(first)).toContain('Apricot');
+    expect(figures()[0].contains(first)).toBe(true);
+    expectFocusOn(first, 'the first rendered checkbox');
+    expect(checkboxes().some((box) => box.checked), 'entry focus must not select').toBe(false);
+  });
+
+  it('focuses the current filtered card while an outgoing card is animating', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Apple' }),
+      makeCharacter(2, { name: 'Banana' }),
+    ]);
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    expect(figures()[0].querySelector('img')?.alt).toBe('Banana');
+
+    const input = target.querySelector<HTMLInputElement>('input[type="search"]')!;
+    input.value = 'Apple';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect([...figures()].some((figure) => figure.querySelector('img')?.alt === 'Banana')).toBe(true);
+    await enterSelectMode();
+
+    const apple = checkboxFor('Apple');
+    expectFocusOn(apple, 'the current filtered checkbox');
+    expect(apple?.checked).toBe(false);
+  });
+
+  it('focuses Cancel when the library is empty', async () => {
+    await seedDatabase([]);
+
+    start();
+    await waitForReady();
+    await enterSelectMode();
+
+    expectFocusOn(buttonWithText('Cancel'), 'the Cancel control');
+  });
+
+  it('focuses Cancel when the filter leaves nothing rendered', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await search('zzz');
+    expect(figures()).toHaveLength(0);
+
+    await enterSelectMode();
+
+    expectFocusOn(buttonWithText('Cancel'), 'the Cancel control');
+  });
+
+  it('returns focus to Select when selection mode is cancelled', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await enterSelectMode();
+
+    buttonWithText('Cancel')!.click();
+    await settle();
+    expectFocusOn(buttonWithText('Select'), 'the Select control');
+
+    // An empty filtered list is not a dead end either.
+    await search('zzz');
+    expect(figures()).toHaveLength(0);
+    await enterSelectMode();
+
+    buttonWithText('Cancel')!.click();
+    await settle();
+    expectFocusOn(buttonWithText('Select'), 'the Select control');
   });
 
   it('clears the selection and leaves select mode after a committed batch delete', async () => {
@@ -432,5 +713,40 @@ describe('App', () => {
     expect(target.querySelectorAll('input[aria-label^="Select "]')).toHaveLength(0);
     expect(buttonWithText('Select')).toBeDefined();
     expect(target.textContent).not.toContain('selected');
+  });
+
+  it('returns focus to Select after a committed batch delete', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+      makeCharacter(3, { name: 'Cora' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(3));
+    await enterSelectMode();
+    selectCard('Aria');
+    await settle();
+
+    buttonWithText('Delete Selected')!.click();
+    await waitFor(async () => expect(await readDatabase()).toHaveLength(2));
+    await settle();
+
+    expect(figures()).toHaveLength(2);
+    expect(target.textContent).not.toContain('selected');
+    expectFocusOn(buttonWithText('Select'), 'the Select control');
+
+    // Removing the last rendered Characters is not a dead end either.
+    await enterSelectMode();
+    selectCard('Bram');
+    selectCard('Cora');
+    await settle();
+
+    buttonWithText('Delete Selected')!.click();
+    await waitFor(async () => expect(await readDatabase()).toHaveLength(0));
+    await settle();
+
+    expect(figures()).toHaveLength(0);
+    expectFocusOn(buttonWithText('Select'), 'the Select control');
   });
 });

@@ -435,20 +435,25 @@ Behavior:
 
 ## 11. Styling and Layout
 
-`src/style.css` holds the whole custom style surface. It imports Tailwind and declares the theme tokens:
+`src/style.css` imports Tailwind, declares the theme tokens, and provides the shared focus outline. `MasonryItem.svelte` adds a two-tone focus treatment over artwork:
 
 | Token | Value | Use |
 |---|---|---|
 | `--color-bg-primary` | `#1a1a2e` | Page background. |
 | `--color-bg-secondary` | `#16213e` | Header, form, and dialog background. |
 | `--color-bg-card` | `#0f3460` | Declared but not used today. |
-| `--color-accent` | `#e94560` | Primary actions and headings. |
-| `--color-accent-hover` | `#d63a54` | Hover state of a primary action. |
+| `--color-accent` | `#d13b57` | Primary actions and headings. |
+| `--color-accent-hover` | `#c93a55` | Hover state of a primary action. |
 | `--color-danger` | `#f87171` | Form error text, including a failed save. |
 | `--color-warning` | `#fcd34d` | Non-blocking form warnings, such as a failed size measurement. |
 | `--color-border` | `#533483` | Borders and secondary buttons. |
+| `--color-focus-ring` | `#ffd5dc` | The shared focus indicator. |
+| `--color-selection` | `#ff2056` | The selection checkbox accent. |
+| `--color-zinc-500` | `#8f8f99` | Tailwind step for muted text, placeholders, and outlined control borders. |
 
 Use the token names (`bg-accent`, `text-accent`, `border-border`) rather than raw colors.
+
+The muted zinc token is retuned for readability on the dark backgrounds. The accent on the secondary background measures 3.39:1. It is used for large, bold headings, not normal-sized text.
 
 Layout rules:
 
@@ -456,17 +461,23 @@ Layout rules:
 - A card reserves its space with `aspect-ratio`. Keep the reserved space when you change the card.
 - Animate only `transform` and `opacity`.
 - Gate a movement or a transition with `motion-safe:` or `motion-reduce:`. Never gate the visibility of a control. A reduced-motion user must still see the hover label and the download button.
-- Use `focus-visible` rings on every control.
+- Keep the shared focus indicator from `src/style.css` on every control. The components keep their `focus-visible:ring-*` utilities as an inner accent, but that ring is 50% accent and too weak to carry the indicator alone.
+
+The shared focus outline in `src/style.css` is unlayered so it overrides the existing outline utilities. Selection cards also use a two-tone focus treatment over artwork.
 
 ## 12. Accessibility
 
-- Every card is a real `button`. Enter and Space open it.
+- A card is a real `button` with the Character name as its label. In normal mode, Enter and Space open the lightbox, and the download button downloads the image.
+- In selection mode, the card does not open the lightbox. Each Character exposes its selection through a native checkbox, so the checked state uses standard semantics. The card face is a pointer and touch shortcut for the same selection, and the visible check indicator reflects the same state.
 - The download button has an `aria-label` with the character name.
 - The dialog has an accessible name through `aria-labelledby`.
 - The dialog traps the focus and restores it on close.
 - Every image has an `alt` text or an empty `alt`.
 - The reduced-motion preference stops the animation, not the function.
-- The focus ring is always visible. Do not remove it without a replacement.
+- The shared focus outline makes focused controls identifiable. Selection cards have an additional two-tone focus indicator over artwork.
+- This slice repairs identified contrast barriers. It is not a claim of application-wide WCAG conformance.
+
+The automated suite checks markup and state. It does not check rendered contrast, native keyboard behavior, or a screen-reader announcement. Recheck the affected flows in a real browser before you claim those results. See section 13.
 
 ## 13. Testing
 
@@ -480,7 +491,8 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
-| `tests/app.test.ts` | The mounted page: load, add with a file, edit, delete, loading versus empty, failed start with Retry, a rejected save that keeps the draft, and the delete and batch-delete outcomes. |
+| `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, and focus transitions. |
+| `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
 | `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
 
@@ -531,6 +543,8 @@ Notes:
 ### What the tests do not cover
 
 - A real browser in the automated suite. The jsdom stand-ins approximate the dialog, the animations, and `matchMedia`.
+- Rendered color contrast and the visibility of the focus indicator. jsdom paints nothing, so measure the built page in a desktop Chrome or Edge session. See sections 11 and 12.
+- Native keyboard behavior, such as the Tab order and Space on a checkbox, and any screen-reader announcement. A DOM assertion about focus or markup is not evidence of either.
 - The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
 - The canvas path of `downloadCharacterImage`, because jsdom has no canvas.
 - The performance of the gallery with a large library.

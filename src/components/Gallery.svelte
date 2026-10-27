@@ -1,5 +1,6 @@
 <script lang="ts">
 
+  import { tick } from 'svelte';
   import type { Character } from '../types';
   import { downloadCharacterImage } from '../download';
   import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
@@ -24,6 +25,9 @@
   // Batch selection state
   let selectMode = $state(false);
   let selectedIds: string[] = $state([]);
+  let selectButton: HTMLButtonElement | undefined = $state();
+  let cancelButton: HTMLButtonElement | undefined = $state();
+  let grid: HTMLDivElement | undefined = $state();
 
   // Incremental loading
   let visibleCount = $state(PAGE_SIZE);
@@ -88,11 +92,15 @@
     }
   }
 
-  function handleToggleSelectMode() {
-    selectMode = !selectMode;
-    if (!selectMode) {
-      selectedIds = [];
-    }
+  async function handleEnterSelectMode() {
+    selectMode = true;
+    await tick();
+    // Outgoing animated cards can still be in the DOM; focus the first card
+    // in the current rendered list, not an obsolete outgoing element.
+    const firstId = visibleCharacters[0]?.id;
+    const first = [...(grid?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])]
+      .find((input) => input.dataset.characterId === firstId);
+    (first ?? cancelButton)?.focus();
   }
 
   async function handleDeleteSelected() {
@@ -101,12 +109,16 @@
     if (deleted) {
       selectedIds = [];
       selectMode = false;
+      await tick();
+      selectButton?.focus();
     }
   }
 
-  function handleCancelSelect() {
+  async function handleCancelSelect() {
     selectMode = false;
     selectedIds = [];
+    await tick();
+    selectButton?.focus();
   }
 
   function handleDownload(character: Character) {
@@ -123,20 +135,24 @@
   onSortChange={handleSortChange}
   selectMode={selectMode}
   selectedCount={selectedIds.length}
-  onToggleSelectMode={handleToggleSelectMode}
+  onToggleSelectMode={handleEnterSelectMode}
   onDeleteSelected={handleDeleteSelected}
   onCancelSelect={handleCancelSelect}
+  bind:selectButton
+  bind:cancelButton
 />
 
-<MasonryGrid
-  characters={visibleCharacters}
-  animate={true}
-  onOpen={openCharacter}
-  selectMode={selectMode}
-  selectedIds={selectedIds}
-  onToggleSelect={toggleSelect}
-  onDownload={handleDownload}
-/>
+<div bind:this={grid}>
+  <MasonryGrid
+    characters={visibleCharacters}
+    animate={true}
+    onOpen={openCharacter}
+    selectMode={selectMode}
+    selectedIds={selectedIds}
+    onToggleSelect={toggleSelect}
+    onDownload={handleDownload}
+  />
+</div>
 
 {#if hasMore}
   <div bind:this={sentinelEl} class="py-8 text-center">

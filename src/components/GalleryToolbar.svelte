@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SortMode } from '../gallery-utils';
 
-  let { searchTerm, sortMode, onSearchChange, onSortChange, selectMode = false, selectedCount = 0, onToggleSelectMode, onDeleteSelected, onCancelSelect }: {
+  let { searchTerm, sortMode, onSearchChange, onSortChange, selectMode = false, selectedCount = 0, onToggleSelectMode, onDeleteSelected, onCancelSelect, selectButton = $bindable(), cancelButton = $bindable() }: {
     searchTerm: string;
     sortMode: SortMode;
     onSearchChange: (term: string) => void;
@@ -11,13 +11,17 @@
     onToggleSelectMode?: () => void;
     onDeleteSelected?: () => void;
     onCancelSelect?: () => void;
+    selectButton?: HTMLButtonElement;
+    cancelButton?: HTMLButtonElement;
   } = $props();
 </script>
+
+<span role="status" aria-live="polite" aria-atomic="true" class="sr-only">{selectMode ? 'Selection mode.' : ''}</span>
 
 {#if selectMode}
   <!-- Select mode toolbar -->
   <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-6">
-    <span class="text-zinc-300 font-medium">{selectedCount} selected</span>
+    <span role="status" aria-live="polite" aria-atomic="true" class="text-zinc-300 font-medium">{selectedCount} selected</span>
     <button
       type="button"
       onclick={onDeleteSelected}
@@ -29,38 +33,44 @@
     <button
       type="button"
       onclick={onCancelSelect}
-      class="rounded-lg border border-border px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      bind:this={cancelButton}
+      class="rounded-lg border border-zinc-500 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
     >
       Cancel
     </button>
   </div>
 {:else}
   <!-- Normal mode toolbar -->
-  <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-6">
-    <div class="relative flex-1">
+  <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-end mb-6">
+    <label class="flex w-full flex-1 flex-col gap-1 text-sm text-zinc-200">
+      <span>Search characters</span>
       <input
         type="search"
         placeholder="Search characters..."
         value={searchTerm}
         oninput={(e) => onSearchChange((e.target as HTMLInputElement).value)}
-        class="w-full rounded-lg border border-border bg-bg-secondary px-4 py-2 text-zinc-200 placeholder:text-zinc-500 focus:border-accent focus:outline-none"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-secondary px-4 py-2 text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
       />
-    </div>
+    </label>
 
-    <select
-      value={sortMode}
-      onchange={(e) => onSortChange((e.target as HTMLSelectElement).value as SortMode)}
-      class="rounded-lg border border-border bg-bg-secondary px-4 py-2 text-zinc-200 focus:border-accent focus:outline-none"
-    >
-      <option value="newest">Newest first</option>
-      <option value="oldest">Oldest first</option>
-      <option value="name">Name (A–Z)</option>
-    </select>
+    <label class="flex flex-col gap-1 text-sm text-zinc-200">
+      <span>Sort characters</span>
+      <select
+        value={sortMode}
+        onchange={(e) => onSortChange((e.target as HTMLSelectElement).value as SortMode)}
+        class="rounded-lg border border-zinc-500 bg-bg-secondary px-4 py-2 text-zinc-200 focus:outline-none"
+      >
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="name">Name (A–Z)</option>
+      </select>
+    </label>
 
     <button
       type="button"
       onclick={onToggleSelectMode}
-      class="rounded-lg border border-border px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      bind:this={selectButton}
+      class="rounded-lg border border-zinc-500 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
     >
       Select
     </button>

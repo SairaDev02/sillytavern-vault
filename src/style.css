@@ -4,9 +4,34 @@
   --color-bg-primary: #1a1a2e;
   --color-bg-secondary: #16213e;
   --color-bg-card: #0f3460;
-  --color-accent: #e94560;
-  --color-accent-hover: #d63a54;
+  --color-accent: #d13b57;
+  --color-accent-hover: #c93a55;
   --color-danger: #f87171;
   --color-warning: #fcd34d;
   --color-border: #533483;
+  --color-focus-ring: #ffd5dc;
+  --color-selection: #ff2056;
+
+  /* Tailwind's zinc-500 (#71717a) reaches only 3.53:1 on --color-bg-primary and
+     3.29:1 on --color-bg-secondary. The empty-state text and the search placeholder
+     use `text-zinc-500`, so this palette step is lifted to 5.33:1 and 4.96:1. Keep
+     it at or above 4.5:1 on the lightest background that uses it. */
+  --color-zinc-500: #8f8f99;
+}
+
+/*
+ * The shared focus indicator. The components keep their `focus-visible:ring-*`
+ * utilities as an inner accent, but a 50% accent ring composites to about 1.7:1
+ * against the page backgrounds, which is too weak to carry the indicator alone.
+ *
+ * The rule is unlayered on purpose: unlayered CSS wins over Tailwind's `utilities`
+ * layer, so it also replaces the `focus:outline-none` utility on the form controls.
+ * The outline is drawn inside the control because the card figure sets
+ * `overflow: hidden`; an outer outline would be clipped there and disappear.
+ * #ffd5dc clears 3:1 against every theme background (11.96:1 to 12.84:1) and
+ * against --color-accent (3.53:1).
+ */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
 }

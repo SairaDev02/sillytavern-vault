@@ -478,23 +478,17 @@ The lightbox should not change the masonry layout.
 
 Gallery items that open a detail view should be actual `<button>` or `<a>` elements, not clickable `<div>` elements.
 
-Required behavior:
-
-```text
-Tab -> item 1 -> item 2 -> item 3 -> ...
-Enter/Space -> open selected item
-Escape -> close lightbox
-```
+In normal mode, Enter or Space opens a card, and Escape closes the lightbox.
+The download button is a separate keyboard stop. In selection mode, each card
+has one native checkbox instead of an opening button. Space toggles that checkbox.
+The card face and check indicator activate the same control.
 
 ### Focus styling
 
 Do not remove the browser focus indicator without providing a stronger replacement.
 
-Example:
-
-```html
-class="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-current/50"
-```
+The shared focus outline is in `src/style.css`. Cards also use a two-tone
+focus indicator so that it remains visible over light and dark artwork.
 
 ### Reading order
 

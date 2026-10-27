@@ -100,6 +100,14 @@ describe('Gallery incremental loading', () => {
     await settle();
   }
 
+  const selectButton = () =>
+    [...target.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Select'
+    ) as HTMLButtonElement | undefined;
+  const checkboxes = () => [
+    ...target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ];
+
   it('renders one page, then loads another page when the sentinel is visible', async () => {
     await start(30);
 
@@ -130,6 +138,29 @@ describe('Gallery incremental loading', () => {
     await settle();
 
     expect(renderedCount()).toBe(30);
+  });
+
+  it('focuses the first rendered checkbox when selection mode starts', async () => {
+    // More Characters than one page, so the list is filtered and truncated.
+    await start(30);
+    expect(renderedCount()).toBe(24);
+
+    selectButton()!.click();
+    await settle();
+
+    const boxes = checkboxes();
+    expect(boxes).toHaveLength(24);
+
+    // Focus lands on the first checkbox in the rendered document order, not on
+    // a Character that the filter matched but the page has not rendered yet.
+    expect(document.activeElement, 'focus should be on the first rendered checkbox').toBe(
+      boxes[0]
+    );
+    expect(boxes[0].getAttribute('aria-label')).toContain('Character 30');
+    expect(
+      checkboxes().some((box) => box.checked),
+      'entry focus must not select the Character'
+    ).toBe(false);
   });
 
   it('watches the live sentinel after the list is replaced', async () => {
