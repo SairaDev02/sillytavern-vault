@@ -72,6 +72,32 @@ async function breakStoreMethod(method: 'put' | 'delete'): Promise<() => void> {
   };
 }
 
+/**
+ * Hold the next library open until the test releases it, so a Retry can be
+ * observed while it is still pending. `release` hands a real database to the
+ * waiting open and restores the real factory.
+ */
+async function holdStorageOpen(workingIndexedDb: IDBFactory) {
+  // `openDB` reads the current factory, so restore it and open the database first.
+  vi.stubGlobal('indexedDB', workingIndexedDb);
+  const database = await openDB(DB_NAME);
+
+  let pending: { onsuccess?: ((event: unknown) => void) | null } | null = null;
+  vi.stubGlobal('indexedDB', {
+    open() {
+      pending = { onsuccess: null };
+      return pending;
+    },
+  });
+
+  return {
+    release() {
+      vi.stubGlobal('indexedDB', workingIndexedDb);
+      pending?.onsuccess?.({ target: { result: database } });
+    },
+  };
+}
+
 /** Flush Svelte updates plus the animation microtasks from the WAAPI stub. */
 async function settle() {
   for (let i = 0; i < 5; i += 1) {
@@ -429,12 +455,15 @@ describe('App', () => {
     await waitFor(() => expect(figures()).toHaveLength(3));
 
     // Narrowing a result list is not an announcement, and no count is read out.
+    // The page's own start-up status is the only other live text here.
     await search('a');
     expect(figures()).toHaveLength(3);
-    expect(statusText()).toBe('');
+    expect(statusText()).not.toMatch(/match/i);
+    expect(statusText()).not.toMatch(/\d/);
     await search('ra');
     expect(figures()).toHaveLength(2);
-    expect(statusText()).toBe('');
+    expect(statusText()).not.toMatch(/match/i);
+    expect(statusText()).not.toMatch(/\d/);
 
     await search('zzz');
     expect(figures()).toHaveLength(0);
@@ -486,6 +515,170 @@ describe('App', () => {
     expect(target.textContent).toContain('Aria');
     expect(buttonWithText('+ Add Character')!.disabled).toBe(false);
     expect(target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('exposes loading and the ready outcome as status information', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    // The first paint is loading, and that state is announced as status.
+    expect(statusText()).toContain('Loading your character library');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
+
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    // Reaching ready is announced too, so recovery is followable without hunting.
+    expect(statusText()).toMatch(/character library is ready/i);
+    expect(statusText()).not.toContain('Loading your character library');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(false);
+  });
+
+  it('explains a failed start without claiming stored Characters are still there', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    vi.stubGlobal('indexedDB', {
+      open() {
+        throw new Error('storage blocked');
+      },
+    });
+
+    start();
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+
+    const alert = target.querySelector('[role="alert"]')!;
+    const text = (alert.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('Could not open your character library');
+    expect(text).toContain('storage blocked');
+    expect(text).toMatch(/loading failed/i);
+    expect(text).toMatch(/not delete or replace/i);
+    // A failed read cannot establish that the stored Characters are present.
+    expect(text).not.toMatch(/still stored/i);
+
+    expect(buttonWithText('Retry')).toBeDefined();
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
+    expect(figures()).toHaveLength(0);
+    // The failure is status information too, not only an alert.
+    expect(statusText()).toMatch(/could not be opened/i);
+  });
+
+  it('moves focus to the page heading when Retry is activated, without a keyboard stop', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    const workingIndexedDb = globalThis.indexedDB;
+    const blockStorage = () =>
+      vi.stubGlobal('indexedDB', {
+        open() {
+          throw new Error('storage blocked');
+        },
+      });
+
+    blockStorage();
+    start();
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+
+    const heading = target.querySelector('h1')!;
+    buttonWithText('Retry')!.click();
+
+    // Focus moves away from the Retry control before it disappears.
+    expectFocusOn(heading, 'the page heading');
+    // The heading is a focus destination, not one more tab stop.
+    expect(keyboardStops(target.querySelector('header')!)).toHaveLength(0);
+
+    // Loading is announced again and Add stays unavailable.
+    flushSync();
+    expect(statusText()).toContain('Loading your character library');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
+
+    // The same fault fails the retry again, and the heading keeps focus.
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    expect(statusText()).toMatch(/could not be opened/i);
+
+    // Ready keeps Add as the only keyboard stop in the header.
+    vi.stubGlobal('indexedDB', workingIndexedDb);
+    buttonWithText('Retry')!.click();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const stops = keyboardStops(target.querySelector('header')!);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toBe(buttonWithText('+ Add Character'));
+  });
+
+  it('keeps stored records through a failed Retry and re-shows the failure alert', async () => {
+    const seeded = [makeCharacter(1, { name: 'Aria' }), makeCharacter(2, { name: 'Bram' })];
+    await seedDatabase(seeded);
+
+    const workingIndexedDb = globalThis.indexedDB;
+    const blockStorage = () =>
+      vi.stubGlobal('indexedDB', {
+        open() {
+          throw new Error('storage blocked');
+        },
+      });
+
+    blockStorage();
+    start();
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+
+    // A failed start neither deletes nor replaces what is stored.
+    vi.stubGlobal('indexedDB', workingIndexedDb);
+    expect(await readDatabase()).toHaveLength(2);
+
+    // Retrying against the same fault fails again and shows the alert again.
+    blockStorage();
+    buttonWithText('Retry')!.click();
+    flushSync();
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(statusText()).toContain('Loading your character library');
+
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    expect(statusText()).toMatch(/could not be opened/i);
+
+    // Recovering brings the same records back, unchanged and not duplicated.
+    vi.stubGlobal('indexedDB', workingIndexedDb);
+    buttonWithText('Retry')!.click();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(target.textContent).toContain('Aria');
+    expect(target.textContent).toContain('Bram');
+
+    const stored = await readDatabase();
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(expect.arrayContaining(seeded));
+  });
+
+  it('does not move focus when a pending Retry completes', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    const workingIndexedDb = globalThis.indexedDB;
+    vi.stubGlobal('indexedDB', {
+      open() {
+        throw new Error('storage blocked');
+      },
+    });
+
+    start();
+    await waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+
+    const pending = await holdStorageOpen(workingIndexedDb);
+    buttonWithText('Retry')!.click();
+
+    const heading = target.querySelector('h1')!;
+    expectFocusOn(heading, 'the page heading');
+    // Retry is in flight, so the page is loading again and the alert is gone.
+    flushSync();
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+
+    // The user moves on while the retry is still pending.
+    heading.blur();
+    expect(document.activeElement).toBe(document.body);
+    expect(statusText()).toContain('Loading your character library');
+    expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
+
+    pending.release();
+
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    // The completion announces itself and leaves the user where they are.
+    expect(statusText()).toMatch(/character library is ready/i);
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('keeps the draft and the form open when a save fails, then saves on retry', async () => {

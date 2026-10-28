@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { CharacterLibrary, type CharacterDraft } from './character-library.svelte';
+  import {
+    CharacterLibrary,
+    type CharacterDraft,
+    type LibraryStatus,
+  } from './character-library.svelte';
   import type { Character } from './types';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
@@ -10,6 +14,14 @@
     'Could not delete the selected Characters. Nothing was removed, ' +
     'so your selection is unchanged.';
 
+  // What the page announces for each start-up state. The failure alert carries the
+  // detail; this is the short form that follows the transition into and out of it.
+  const STATUS_MESSAGE: Record<LibraryStatus, string> = {
+    loading: 'Loading your character library...',
+    failed: 'Your character library could not be opened.',
+    ready: 'Your character library is ready.',
+  };
+
   // One library per page. It is the only writer of Character records and the
   // only owner of the list; this shell renders what the library publishes.
   const library = new CharacterLibrary();
@@ -18,6 +30,8 @@
   let showForm = $state(false);
   // Kept in the page shell so a delete failure survives closing the lightbox.
   let deleteNotice = $state<string | null>(null);
+  // The stable landmark that receives focus when Retry removes itself.
+  let heading = $state<HTMLHeadingElement | undefined>(undefined);
 
   onMount(() => {
     void library.initialize();
@@ -76,6 +90,9 @@
   }
 
   function retry() {
+    // The Retry control is gone as soon as loading starts, so move focus to the
+    // page heading first. Nothing focuses again when the retry completes.
+    heading?.focus();
     void library.initialize();
   }
 </script>
@@ -83,7 +100,13 @@
 <div class="min-h-screen bg-bg-primary text-zinc-200">
   <header class="border-b-2 border-border bg-bg-secondary px-6 py-5 sm:px-10">
     <div class="flex items-center justify-between">
-      <h1 class="text-accent text-2xl font-bold">Character Gallery</h1>
+      <h1
+        bind:this={heading}
+        tabindex="-1"
+        class="text-accent rounded text-2xl font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      >
+        Character Gallery
+      </h1>
       <button
         type="button"
         disabled={library.status !== 'ready'}
@@ -113,6 +136,20 @@
       </div>
     {/if}
 
+    <!-- The library state, so a screen reader can follow loading and recovery.
+         It is the page's whole content while loading; otherwise it repeats in
+         words what the page already shows. -->
+    <p
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      class={library.status === 'loading'
+        ? 'py-12 text-center text-zinc-400'
+        : 'sr-only'}
+    >
+      {STATUS_MESSAGE[library.status]}
+    </p>
+
     {#if showForm}
       {#key editingCharacter?.id ?? 'new'}
         <CharacterForm
@@ -121,8 +158,6 @@
           onCancel={cancelForm}
         />
       {/key}
-    {:else if library.status === 'loading'}
-      <p class="text-center text-zinc-400 py-12" role="status">Loading your character library...</p>
     {:else if library.status === 'failed'}
       <div
         role="alert"
@@ -130,7 +165,8 @@
       >
         <h2 class="mb-2 text-lg font-bold text-danger">Could not open your character library</h2>
         <p class="mb-1 text-zinc-300">
-          Your Characters are still stored in this browser. Try again before you leave this page.
+          Loading failed, so your Characters could not be shown. Retry will not delete or replace
+          stored Characters.
         </p>
         {#if library.failureMessage}
           <p class="mb-4 break-words text-sm text-zinc-400">{library.failureMessage}</p>
@@ -143,7 +179,7 @@
           Retry
         </button>
       </div>
-    {:else}
+    {:else if library.status === 'ready'}
       {#if library.repairWarning}
         <p class="mb-6 text-center text-sm text-warning" role="status">{library.repairWarning}</p>
       {/if}
