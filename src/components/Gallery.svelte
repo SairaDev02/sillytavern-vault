@@ -22,8 +22,19 @@
   let searchTerm = $state('');
   let sortMode = $state<SortMode>('newest');
 
-  // Selected character for lightbox
-  let selectedCharacter: Character | null = $state(null);
+  // The open Character is held by identity, not by a copy. The library is the
+  // only owner of the record, so a published change reaches the dialog instead
+  // of leaving it on a snapshot taken when the card was opened.
+  let selectedId = $state<string | null>(null);
+  let selectedCharacter = $derived(
+    selectedId === null ? null : characters.find((candidate) => candidate.id === selectedId) ?? null
+  );
+
+  // A Character that left the library closes the dialog; forgetting its id also
+  // stops a later record with the same id from reopening it.
+  $effect(() => {
+    if (selectedId !== null && selectedCharacter === null) selectedId = null;
+  });
 
   // Batch selection state
   let selectMode = $state(false);
@@ -131,14 +142,13 @@
 
   function openCharacter(id: string) {
     if (selectMode) return; // Don't open lightbox in select mode
-    const char = characters.find((c) => c.id === id);
-    if (char) {
-      selectedCharacter = char;
+    if (characters.some((candidate) => candidate.id === id)) {
+      selectedId = id;
     }
   }
 
   function closeLightbox() {
-    selectedCharacter = null;
+    selectedId = null;
   }
 
   function toggleSelect(id: string) {

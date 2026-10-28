@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import GalleryHarness from './GalleryHarness.svelte';
-import { makeCharacter } from './fixtures';
+import { PNG_1X1, makeCharacter } from './fixtures';
 import type { Character } from '../src/types';
 
 /** A second, different image source, so a replacement is observable. */
@@ -353,6 +353,53 @@ describe('Character card image', () => {
 
       expect(unavailableFallback('Aria the Bold')?.textContent?.trim()).toBe(UNAVAILABLE);
       expect(descriptionOf(controlFor('Aria the Bold'))).toBe(UNAVAILABLE);
+    });
+  });
+
+  describe('the lightbox shows the live Character record', () => {
+    const dialog = () => target.querySelector('dialog');
+    const dialogImage = () => dialog()?.querySelector<HTMLImageElement>('img');
+
+    async function open(name: string) {
+      controlFor(name).click();
+      await settle();
+      expect(dialog()?.open).toBe(true);
+    }
+
+    it('renders a replacement image the library publishes while the dialog is open', async () => {
+      await start([makeCharacter(1, { name: 'Aria' })]);
+      await open('Aria');
+      expect(dialogImage()?.getAttribute('src')).toBe(PNG_1X1);
+
+      app!.setCharacters([
+        makeCharacter(1, { name: 'Aria', image: OTHER_PNG, width: 8, height: 6 }),
+      ]);
+      await settle();
+
+      expect(dialogImage()?.getAttribute('src')).toBe(OTHER_PNG);
+      expect(dialogImage()?.getAttribute('width')).toBe('8');
+      expect(dialog()?.textContent).not.toContain(UNAVAILABLE);
+    });
+
+    it('keeps the dialog on the open Character when the published record renames it', async () => {
+      await start([makeCharacter(1, { name: 'Aria' })]);
+      await open('Aria');
+
+      app!.setCharacters([makeCharacter(1, { name: 'Aria the Bold' })]);
+      await settle();
+
+      expect(dialog()?.textContent).toContain('Aria the Bold');
+      expect(dialog()?.open).toBe(true);
+    });
+
+    it('closes the dialog when the published library no longer holds the Character', async () => {
+      await start([makeCharacter(1, { name: 'Aria' })]);
+      await open('Aria');
+
+      app!.setCharacters([]);
+      await settle();
+
+      expect(dialog()).toBeNull();
     });
   });
 });
