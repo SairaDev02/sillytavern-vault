@@ -23,7 +23,7 @@ npm run build          # vite build -> dist/ (does NOT type-check)
 
 Definition of done for a code change:
 
-1. `npm test` passes (120 tests, 9 files at the time of writing).
+1. `npm test` passes (214 tests, 14 files at the time of writing).
 2. `npm run check` reports `0 errors and 0 warnings`.
 3. `npm run build` succeeds.
 4. The matching document is updated.
@@ -38,13 +38,15 @@ No CI gate to hide behind locally, and no linter or formatter: run the three com
 |---|---|---|
 | `index.html` | Entry page, loads `src/main.ts` | Rarely |
 | `src/main.ts` | `mount(App, { target: '#app' })` | Never |
-| `src/App.svelte` | Page shell: renders the library state, the delete notice, the form, and the gallery | Page layout, start-up states, delete notice |
+| `src/App.svelte` | Page shell: renders the library state and its status, the delete notice, the download notice, and the form or gallery | Page layout, start-up states, notices, Retry focus |
 | `src/types.ts` | `Character` interface | Any data-shape question |
 | `src/character-library.svelte.ts` | `CharacterLibrary` class: the canonical list, start-up and Retry, record rules, mutation ordering, delete outcomes, legacy size repair | Any persistence, list, or record-rule change |
 | `src/library-error.ts` | `LibraryError` + `LibraryErrorKind`, no storage imports | Error-kind branching in a component |
 | `src/db.ts` | IndexedDB open/add/delete/getAll | Storage behavior |
 | `src/id.ts` | `generateId()` | Id format |
 | `src/image.ts` | `measureImage(src)` | Intrinsic size logic |
+| `src/image-frame.ts` | The frame rule shared by the card and the lightbox: stored pair or 4:3 fallback, plus the source-scoped failure check | Image shape or image-failure display |
+| `src/download-attempts.svelte.ts` | `DownloadAttempts` class: page-owned attempts, per-Character ordering, the one failure notice | Download feedback |
 | `src/selected-image.svelte.ts` | `SelectedImage` class: choice ordering, image/dimension pairing, readiness, discard, obsolete-result suppression | Character form image behavior |
 | `src/gallery-utils.ts` | `PAGE_SIZE`, `SortMode`, filter/sort | Search, sort, page size |
 | `src/download.ts` | Data URL parse, PNG conversion, filename, download | Export path |
@@ -66,17 +68,20 @@ Component graph:
 graph TD
   main --> App
   App --> characterLibrary
+  App --> downloadAttempts
   App --> Gallery
   App --> CharacterForm
   characterLibrary --> db
   characterLibrary --> id
   characterLibrary --> image
+  downloadAttempts --> download
   Gallery --> GalleryToolbar
   Gallery --> MasonryGrid
   Gallery --> Lightbox
   Gallery --> galleryUtils
   MasonryGrid --> MasonryItem
-  MasonryItem --> download
+  MasonryItem --> imageFrame
+  Lightbox --> imageFrame
   CharacterForm --> selectedImage
   selectedImage --> image
 ```
@@ -105,6 +110,23 @@ export function generateId(): string;   // crypto.randomUUID(), fallback: time36
 
 // src/image.ts
 export function measureImage(src: string): Promise<{ width: number; height: number }>;
+
+// src/image-frame.ts
+export const FALLBACK_IMAGE_SIZE = { width: 4, height: 3 };
+export const IMAGE_UNAVAILABLE_TEXT = 'Image unavailable';
+export function isUsableImageSize(size: { width?: number; height?: number } | null | undefined): boolean;
+export function imageFrameSize(size: { width?: number; height?: number } | null | undefined): { width: number; height: number };
+export function imageFrameAspectRatio(size: { width?: number; height?: number } | null | undefined): string;
+export function isImageUnavailable(source: string, failedSource: string | null): boolean;
+
+// src/download-attempts.svelte.ts
+export interface DownloadNotice { characterId: string; characterName: string; }
+export class DownloadAttempts {
+  readonly notice: DownloadNotice | null;
+  readonly message: string | null;
+  start(character: Character): void;
+  dismiss(): void;
+}
 
 // src/selected-image.svelte.ts
 export type PreparationStatus = 'idle' | 'preparing' | 'ready' | 'failed';
@@ -191,12 +213,12 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
-| `App` | none | Page shell. Constructs one `CharacterLibrary`, calls `initialize` on mount, disposes on destroy. Renders loading, failure with Retry, the delete notice, the form, and the gallery. No storage knowledge, no record building. |
-| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>` | Owns view state and lightbox selection. |
+| `App` | none | Page shell. Constructs one `CharacterLibrary` and one `DownloadAttempts`, calls `initialize` on mount, disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, and the gallery. No storage knowledge, no record building. |
+| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
-| `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the aspect ratio from `width`/`height`. |
-| `Lightbox` | `character: Character \| null`, `characters`, `onEdit(id)`, `onDelete(id)`, `onClose()`, `onSelect(id)` | `characters` is the filtered list, so arrows move within the filter. |
+| `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the frame from `width`/`height` through `image-frame.ts`, falling back to 4:3, and describes a failed image on the browse button or checkbox. |
+| `Lightbox` | `character: Character \| null`, `characters`, `onEdit(id)`, `onDelete(id)`, `onClose()`, `onSelect(id)`, `onDownload(character)`, `notice?` | `characters` is the filtered list, so arrows move within the filter. `notice` is the page's download notice snippet, rendered inside the dialog. |
 | `CharacterForm` | `editingCharacter: Character \| null`, `onSave(draft: CharacterDraft) => Promise<void>`, `onCancel()` | Mounted per target by `{#key}`. `onSave` rejects with a `LibraryError`; a `missing-target` rejection gets its own message. Imports the error from `library-error.ts`, not from the library module. |
 
 State ownership (one owner per item; do not duplicate it):
@@ -205,9 +227,10 @@ State ownership (one owner per item; do not duplicate it):
 |---|---|---|
 | `CharacterLibrary` | `characters`, `status`, `failureMessage`, `repairWarning` | The canonical list and the only writer. One instance per page lifetime. |
 | `CharacterLibrary` (internal) | operation chain, repair attempt keys, per-record image generations, database connection, lifetime counter | Private. Never assert on these in tests; observe the public state and the storage. |
-| `App` | `editingCharacter`, `showForm`, `deleteNotice`, one library instance | Presentation and navigation only. |
-| `Gallery` | `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore` | View state. |
-| `Lightbox` | `dialogEl` (`$state`), `triggerButton`, `toreDown`; derived `index`, `hasPrevious`, `hasNext` | Dialog and focus. |
+| `App` | `editingCharacter`, `showForm`, `deleteNotice`, `lightboxOpen`, the focused heading, one library instance, one download owner | Presentation and navigation only. `lightboxOpen` comes from `Gallery`, so the page never assumes a dialog it cannot see. |
+| `DownloadAttempts` | attempt and applied counters per Character, `notice` | Pending attempts and the notice survive Gallery teardown, so a failure can still reach the page while the form is open. |
+| `Gallery` | `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState` | View state. It also reports the dialog state upward. |
+| `Lightbox` | `dialogEl` (`$state`), `triggerButton`, `toreDown`, `failed` (Character id plus source); derived `index`, `hasPrevious`, `hasNext`, `imageUnavailable` | Dialog, focus, and the displayed image's failure. |
 | `CharacterForm` | `name`, `description`, `saving`, `saveError`, one `SelectedImage` | Draft and save locking. |
 
 ---
@@ -220,7 +243,7 @@ MUST hold after any change.
 2. `CharacterLibrary` is the only writer of Character records and the only owner of the canonical list. `App`, `Gallery`, and `CharacterForm` never import `db.ts`, build a record, reload the list, or start storage work. A review that finds any of those in the shell is a regression.
 3. A mutation resolves only after the storage transaction commits and the committed record is published. A rejection always means nothing was committed, and storage and the canonical list still agree. A resolved mutation never triggers a full-library read.
 4. `createdAt` is set once. `CharacterLibrary` copies the stored value during an edit and never re-derives it from the clock. Never write `Date.now()` over an existing record.
-5. `width`/`height` describe `image`. If unknown, leave both `undefined` and let the library's background repair measure them. Stale values distort the reserved `aspect-ratio`. A partial pair is normalized to two absent dimensions.
+5. `width`/`height` describe `image`. If unknown, leave both `undefined` and let the library's background repair measure them. The stored pair reserves the card frame only when both numbers are finite and greater than zero; otherwise every image view uses the complete 4:3 fallback, so one stored side is never paired with one fallback side (`src/image-frame.ts`). A partial pair is normalized to two absent dimensions.
    - A draft with no complete pair supplies no size; a partial pair collapses to no size. With no size supplied and the image unchanged, the stored pair is kept. Otherwise the record has no size.
    - A stored pair survives a save only while the image is unchanged. A replaced image never inherits the previous dimensions.
    - `SelectedImage` publishes only the current selection. A generation token guards every asynchronous state write; `discard` and `dispose` invalidate outstanding work.
@@ -278,10 +301,12 @@ Helpers available:
 
 - `tests/fixtures.ts`: `PNG_1X1`, `makeCharacter(index, overrides?)`, `makeCharacters(count, startIndex?)`.
 - `tests/GalleryHarness.svelte`: mounts `Gallery`, exposes `setCharacters(next)`.
+- `tests/LightboxHarness.svelte`: mounts `Lightbox` with a replaceable list and a chosen open Character.
 - `tests/selected-image.test.ts`: controlled `readFile` and `measure` promises for the preparation module.
 - `tests/character-library.test.ts`: constructs `CharacterLibrary` with the real `db.ts` helpers against a unique `fake-indexeddb` database per test. Controls measurement, identity, the clock, and held writes; asserts the canonical list, the start-up state, the repair warning, and storage.
 - `tests/character-form.test.ts`: a controlled `FileReader` and `Image` for the mounted form. It also rejects with a `LibraryError` to witness the missing-target message.
 - A manual real-browser smoke check ran in headless Chrome 156 on Windows against the production build. It covers real file reading and image decoding through programmatic file-input assignment, same-file recovery, and the accessible feedback markup. It does not exercise the native picker dialog or a screen-reader announcement. It is not part of `npm test`; see WIKI section 13.
+- A second manual check in headless Chrome 156.0.8078.49 on Windows 11 covers the Gallery states, card and lightbox image failures with measured frame geometry, and the download notice across page, dialog, and form, including measured contrast. Android, Firefox, Safari, screen readers, and save completion stay unverified. The numbers and limits are in WIKI section 13.
 - `settle()` pattern (copy from `tests/gallery-scroll.test.ts`): `flushSync()` + `await tick()` in a loop. Use it after any change that starts a transition.
 - `vi.waitFor(fn, { timeout, interval })` for promise-driven UI (database reads, `FileReader`).
 
@@ -339,7 +364,8 @@ Pitfalls:
 
 - No import/export of character cards; no SillyTavern card format support.
 - No thumbnails or blob storage; images are base64 strings held in memory for every record.
-- No image load/error UI; a failed image leaves an empty card of the correct shape.
+- No per-image retry. A failed image shows "Image unavailable" in its reserved frame until the source is replaced or the page reloads; the card keeps its normal browse, selection, and Edit paths.
+- Download feedback only covers a failure the app can detect while preparing the file. A browser handoff is not proof the file was saved, so nothing reports a saved file.
 - No virtualisation; `dbGetAll` loads the whole library, the gallery renders `PAGE_SIZE` at a time.
 - No backdrop-click close in the lightbox (Escape and buttons only).
 - No CI, ESLint, Prettier, or `.editorconfig`.
