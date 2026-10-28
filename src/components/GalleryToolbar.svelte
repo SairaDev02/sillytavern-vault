@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SortMode } from '../gallery-utils';
 
-  let { searchTerm, sortMode, onSearchChange, onSortChange, selectMode = false, selectedCount = 0, onToggleSelectMode, onDeleteSelected, onCancelSelect, selectButton = $bindable(), cancelButton = $bindable() }: {
+  let { searchTerm, sortMode, onSearchChange, onSortChange, selectMode = false, selectedCount = 0, onToggleSelectMode, onDeleteSelected, onCancelSelect, selectButton = $bindable(), cancelButton = $bindable(), searchInput = $bindable() }: {
     searchTerm: string;
     sortMode: SortMode;
     onSearchChange: (term: string) => void;
@@ -13,6 +13,7 @@
     onCancelSelect?: () => void;
     selectButton?: HTMLButtonElement;
     cancelButton?: HTMLButtonElement;
+    searchInput?: HTMLInputElement;
   } = $props();
 </script>
 
@@ -48,6 +49,7 @@
         type="search"
         placeholder="Search characters..."
         value={searchTerm}
+        bind:this={searchInput}
         oninput={(e) => onSearchChange((e.target as HTMLInputElement).value)}
         class="w-full rounded-lg border border-zinc-500 bg-bg-secondary px-4 py-2 text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
       />

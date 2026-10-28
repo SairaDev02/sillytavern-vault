@@ -350,6 +350,116 @@ describe('App', () => {
     expect(target.textContent).not.toContain('Loading your character library');
   });
 
+  it('prefers the genuine empty message over a no-match search in an empty library', async () => {
+    await seedDatabase([]);
+
+    start();
+    await waitFor(() => expect(target.textContent).toContain('No characters yet'));
+
+    // Genuine emptiness is proven by the library, not by the shown cards, so a
+    // search term cannot turn it into a search result.
+    await search('zzz');
+
+    expect(figures()).toHaveLength(0);
+    expect(target.textContent).toContain('No characters yet');
+    expect(target.textContent).not.toContain('No characters match your search');
+    expect(buttonWithText('Clear search')).toBeUndefined();
+  });
+
+  it('shows a distinct no-match message and Clear search, then restores the results', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+
+    await search('zzz');
+
+    expect(figures()).toHaveLength(0);
+    expect(target.textContent).toContain('No characters match your search.');
+    expect(target.textContent).not.toContain('No characters yet');
+    const clear = buttonWithText('Clear search');
+    expect(clear, 'Clear search action').toBeDefined();
+
+    clear!.click();
+    await settle();
+
+    // The whole library is back, the query is empty, and focus is on Search.
+    expect(figures()).toHaveLength(2);
+    const searchInput = target.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(searchInput.value).toBe('');
+    expect(target.textContent).not.toContain('No characters match your search');
+    expectFocusOn(searchInput, 'the Search field');
+  });
+
+  it('keeps the sort choice when a search is cleared', async () => {
+    // Newest first leads with Bram; name order leads with Aria.
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+
+    const sort = target.querySelector<HTMLSelectElement>('select')!;
+    sort.value = 'name';
+    sort.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+    expect(figures()[0].querySelector('img')?.alt).toBe('Aria');
+
+    await search('zzz');
+    buttonWithText('Clear search')!.click();
+    await settle();
+
+    expect(target.querySelector<HTMLSelectElement>('select')!.value).toBe('name');
+    expect(figures()[0].querySelector('img')?.alt).toBe('Aria');
+  });
+
+  it('announces the transitions into no matches and back without a per-keystroke count', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+      makeCharacter(3, { name: 'Cora' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(3));
+
+    // Narrowing a result list is not an announcement, and no count is read out.
+    await search('a');
+    expect(figures()).toHaveLength(3);
+    expect(statusText()).toBe('');
+    await search('ra');
+    expect(figures()).toHaveLength(2);
+    expect(statusText()).toBe('');
+
+    await search('zzz');
+    expect(figures()).toHaveLength(0);
+    const noMatch = liveRegions().find((element) =>
+      (element.textContent ?? '').includes('No characters match your search')
+    );
+    expect(noMatch, 'no-match status').toBeDefined();
+    expect(
+      noMatch!.getAttribute('role') === 'status' ||
+        noMatch!.getAttribute('aria-live') === 'polite'
+    ).toBe(true);
+
+    await search('ra');
+    expect(figures()).toHaveLength(2);
+    expect(statusText()).toContain('Search results restored');
+    expect(statusText()).not.toMatch(/\d/);
+
+    // Returning to results already announced the change; later keystrokes that
+    // stay within the results say nothing.
+    await search('r');
+    expect(figures()).toHaveLength(3);
+    expect(statusText()).toContain('Search results restored');
+    expect(statusText()).not.toMatch(/\d/);
+  });
+
   it('shows a failed start with Retry, keeps Add unavailable, and recovers on Retry', async () => {
     await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
 

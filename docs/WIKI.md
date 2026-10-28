@@ -104,9 +104,9 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/gallery-utils.ts` | Page size, the sort type, and the search and sort rules. |
 | `src/download.ts` | Data URL parsing, PNG conversion, file name rules, and the download action. |
 | `src/style.css` | The Tailwind import and the color theme. |
-| `src/components/Gallery.svelte` | View state, paging, selection, lightbox state. |
+| `src/components/Gallery.svelte` | View state, paging, selection, lightbox state, empty and no-match states. |
 | `src/components/GalleryToolbar.svelte` | Search box, sort control, selection controls. |
-| `src/components/MasonryGrid.svelte` | Column layout, keyed list, animation, empty state. |
+| `src/components/MasonryGrid.svelte` | Column layout, keyed list, animation. |
 | `src/components/MasonryItem.svelte` | One card: image, hover label, download button, selection box. |
 | `src/components/Lightbox.svelte` | Detail dialog with keyboard and button navigation. |
 | `src/components/CharacterForm.svelte` | Add and edit form. |
@@ -343,13 +343,16 @@ The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or
 
 Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`.
 
-State: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`.
+State: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
 
-Derived: `filteredCharacters`, `visibleCharacters`, `hasMore`.
+Derived: `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
 
 Behavior:
 
-- A search or a sort change resets `visibleCount` to `PAGE_SIZE`.
+- A search or a sort change resets `visibleCount` to `PAGE_SIZE`. Clear search is an ordinary search change, so it takes the same path.
+- `emptyState` is `'empty-library'`, `'no-matches'`, or `'none'`. It reads `characters` (the canonical library) rather than `visibleCharacters` (the rendered page), so a search can never disguise genuine emptiness: an empty library always shows the empty message. `MasonryGrid` renders cards only, and the two empty messages belong to `Gallery`.
+- The `'no-matches'` state shows the no-match message and **Clear search**. Clear search keeps `sortMode`, `selectedIds`, and `selectMode`, then moves focus: to the search field in browse mode, or to the first rendered checkbox in selection mode without toggling it, or to **Cancel** when no checkbox is available.
+- `searchStatus` feeds a persistent polite live region, and the effect that writes it announces only the transitions into no matches and back to results. A change within the results stays silent, so no result count is read out per keystroke.
 - A card opens the lightbox only when `selectMode` is false.
 - The sentinel `div` renders while `hasMore` is true.
 - The effect that creates the `IntersectionObserver` reads `sentinelEl` from state. The effect therefore runs again when the element appears, is replaced, or is removed, and it disconnects the old observer.
@@ -365,6 +368,8 @@ Two modes. The normal mode shows the search field, the sort select, and the **Se
 ### `MasonryGrid.svelte`
 
 Props: `characters`, `animate`, `onOpen`, `selectMode`, `selectedIds`, `onToggleSelect`, `onDownload`.
+
+The component renders cards and nothing else. It receives only the rendered page, so it cannot tell an empty library from a search that matched nothing; the empty and no-match messages belong to `Gallery`, which reads the canonical list.
 
 The container uses the CSS multi-column layout: `columns-[14rem] gap-4 sm:columns-[16rem] lg:columns-[18rem]`. The browser picks the number of columns. The app never calculates positions in JavaScript.
 
