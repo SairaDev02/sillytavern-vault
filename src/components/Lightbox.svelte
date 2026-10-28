@@ -82,7 +82,7 @@
     if (hasNext) onSelect(characters[index + 1].id);
   }
 
-  /** Ask the dialog to close. The `close` event performs the actual teardown. */
+  /** Close the open dialog, or tear down directly if it is not open. */
   function requestClose() {
     if (dialogEl?.open) {
       dialogEl.close();

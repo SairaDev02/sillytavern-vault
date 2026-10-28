@@ -1,6 +1,8 @@
 # Plan: Design and Philosophy Consistency
 
-Status: Draft for review. Nothing in this plan is implemented yet.
+Status: Historical audit and proposals, not a current implementation snapshot.
+The findings, line numbers, and proposed tasks reflect the baseline; the notes
+below identify later changes and superseded proposals.
 Date: 2026-09-24. Baseline commit: `26b6392` (clean `main`).
 Scope: the browser app in `src/`, its docs, and its CI. No data-layer features.
 
@@ -73,6 +75,10 @@ before the task sets a final token value.
 | F07 | Every `focus-visible:ring-accent/50` | A 50 percent accent ring over the page background is about 2:1. Non-text contrast needs 3:1. | D7 | High |
 | F08 | `GalleryToolbar.svelte:46,53`, `CharacterForm.svelte:132,142,154` | `border-border` (`#533483`) on `--color-bg-secondary` is about 1.7:1. Input boundaries need 3:1. | D7 | High |
 
+**Status (2026-10-28).** These measurements describe the audit baseline. #31
+changed the accent and zinc palette and added a shared focus treatment; see #31
+for the subsequent rendered-contrast evidence.
+
 ### 3.2 Motion
 
 | ID | Where | What drifts | Violates | Severity |
@@ -89,23 +95,31 @@ before the task sets a final token value.
 | F13 | `GalleryToolbar.svelte:44-58` | The search input and the sort select have no accessible name. Only a placeholder names the input. | D7 | High |
 | F14 | `GalleryToolbar.svelte:20`, `Gallery.svelte` | The selected count and the result count are not announced. No live region exists. | D7 | Medium |
 | F15 | `MasonryItem.svelte:32,62-68` | Selection is shown by a ring only, so the state is color-only. The card button has no `aria-pressed`. The checkbox is a second focus stop that repeats the card action. | D7 | High |
-| F16 | `MasonryItem.svelte:33,44,84` | The button has `aria-label={name}`, the image has `alt={name}`, and the caption repeats the description. The name is announced more than once in browse mode. | D7 | Low |
+| F16 | `MasonryItem.svelte:33,44,84` | The audit noted the name in both the browse button's label and the image's alt text. Actual screen-reader speech has not been verified. | D7 | Low |
 | F17 | `MasonryGrid.svelte:28` | A search with no match shows "No characters yet. Add one above!". The grid receives only the visible page, so it cannot tell the two cases apart. `col-span-full` is a grid leftover inside a columns layout. | D8, D10 | Medium |
+
+**Status (2026-10-28).** #31 added visible Search and Sort labels, exposes the
+selection count as status, and uses one native checkbox per Character in
+selection mode. This supersedes the separate-toggle proposal in T-07.
 
 ### 3.4 Feedback and interaction
 
 | ID | Where | What drifts | Violates | Severity |
 |---|---|---|---|---|
 | F18 | `App.svelte:73,81,104`, `CharacterForm.svelte:63,87,95,112`, download errors | Four error channels exist: native `confirm`, native `alert`, console only, and silent. The UI language is not consistent. | D8 | High |
-| F19 | `CharacterForm.svelte:87` vs `:130` | The `alert('Name is required')` branch cannot run. The `required` attribute stops submit before the handler runs. | D8, D10 | Medium |
+| F19 | `CharacterForm.svelte:87` vs `:130` | **Corrected 2026-10-28.** The alert is reachable: `required` blocks an empty value, but whitespace passes native validation and is rejected after `name.trim()`. #23/#32 keep this behavior unchanged. | — | — |
 | F20 | `App.svelte:127-136` | Opening the form replaces the gallery with no focus move. Cancel returns focus nowhere. | D7 | Medium |
 | F21 | `Lightbox.svelte:99-100` | The dialog names itself but does not describe itself. The description is not linked with `aria-describedby`. | D7 | Low |
-| F22 | `Lightbox.svelte:98-101` | A backdrop click does not close the dialog. `docs/designMasonry.md` section 13 lists it in the state machine. | design section 13 | Low |
-| F23 | `MasonryItem.svelte` | A broken image leaves an empty card of the correct shape. There is no error state and no retry. | D8, design section 12 | Medium |
+| F22 | `Lightbox.svelte:98-101` | A backdrop click does not close the dialog. At the audit, `docs/designMasonry.md` section 13 listed it in the state machine; that document now reflects the current behavior. | design section 13 | Low |
+| F23 | `MasonryItem.svelte` | A broken image has no custom error state or retry. The audit assumed the frame had the correct shape, but a partial dimension pair can give the wrong ratio (F24). #23/#32 specify a fallback without per-card retry; it is not yet implemented. | D8, design section 12 | Medium |
 | F24 | `MasonryItem.svelte:38` | `aspect-ratio: ${width ?? 4} / ${height ?? 3}` mixes a known value with a fallback. A record with only one dimension gets a wrong ratio. | D4 | Medium |
 | F25 | `Gallery.svelte:130` | `animate={true}` is a literal, so the `animate` prop of `MasonryGrid` is dead. | D10, `docs/LLM-WIKI.md` section 9 | Medium |
 | F26 | `MasonryGrid.svelte:32-36` vs `MasonryItem.svelte:29` | `mb-4 break-inside-avoid` sits on the inner figure, not on the animated wrapper. The reference skeleton in `docs/designMasonry.md` section 8.1 puts both classes on the animated element. | D3 | Low |
 | F27 | `MasonryItem.svelte:51` | `bg-gradient-to-t` is the Tailwind v3 name. Tailwind v4 renamed it to `bg-linear-to-t`. The old name still compiles, but it is deprecated. | D5 | Low |
+
+**Status (2026-10-28).** A page delete notice and form save error now exist;
+native delete confirmations, the whitespace-only-name alert, and console-only
+download failures remain.
 
 ### 3.5 Chrome and system
 
@@ -294,6 +308,10 @@ hardcodes `false`; a per-test stub overrides it.
 
 #### T-06: Label the toolbar controls and announce counts (F13, F14)
 
+**Status (2026-10-28).** #31 added visible labels and selection-count status.
+#32 specifies polite transitions to no matches and back, not a result-count
+announcement on every keystroke. The result-count acceptance below is superseded.
+
 **Goal.** Every control has a name, and every count is announced.
 
 **Files.** `src/components/GalleryToolbar.svelte`, `src/components/Gallery.svelte`.
@@ -314,6 +332,9 @@ controls are named in the accessibility tree.
 **Docs.** `docs/WIKI.md` section 12 records the live-region rule.
 
 #### T-07: Express selection with state, not color (F15, F16)
+
+**Status (2026-10-28).** Superseded by #22/#31: keep one native checkbox per
+Character; do not add `aria-pressed` or a second selection control.
 
 **Goal.** Selection is programmatic state, and the card has one focus stop.
 
@@ -340,6 +361,9 @@ selection and updates the announced state. The name is announced once.
 **Docs.** `docs/WIKI.md` section 12 records the one-focus-stop rule.
 
 #### T-08: Show a no-results state (F17)
+
+**Status (2026-10-28).** See #32 for the approved no-match message and action;
+the design and acceptance below are historical proposals.
 
 **Goal.** The gallery tells the truth when a search matches nothing.
 
@@ -370,6 +394,10 @@ non-matching term, assert the message, click clear, assert the list returns.
 ### P2: Feedback, form, and card and lightbox robustness
 
 #### T-09: Replace native alerts and confirms with one notice channel (F18)
+
+**Status (2026-10-28).** Superseded in part by #23/#32: native delete
+confirmations and the whitespace-only-name alert stay. #32 specifies
+download-specific feedback, not a generic notice or custom confirmation.
 
 **Goal.** One visible pattern for errors, confirmations, and results.
 
@@ -407,6 +435,9 @@ lands; otherwise record the deliberate deferral.
 
 #### T-10: Make form validation reachable and inline (F19, F20)
 
+**Status (2026-10-28).** #23/#32 retain the whitespace-only-name alert; the
+inline-validation proposal below is not part of #32.
+
 **Goal.** One validation path with visible errors, and correct focus.
 
 **Files.** `src/components/CharacterForm.svelte`, `src/App.svelte`.
@@ -432,6 +463,10 @@ focus. The helper text and error text are linked to the field.
 **Docs.** `docs/WIKI.md` section 9 records the validation rules.
 
 #### T-11: Add an image error state and a safe aspect ratio (F23, F24)
+
+**Status (2026-10-28).** #23/#32 specify an image-failure fallback without a
+per-card retry. The follow-on work is pending; the helper below is a historical
+suggestion, not a requirement of #32.
 
 **Goal.** A broken image keeps its shape and offers a retry.
 
@@ -607,6 +642,8 @@ check from T-16 passes.
 | DP4 | Motion preference: read once or subscribe? | Keep read once, extract it to `src/motion.ts`, and reconcile both docs. | Preserves the intentional sharp edge in `docs/LLM-WIKI.md` section 8. A live system change is rare, and the current behavior is documented. |
 | DP5 | Where does the no-results state live? | Keep the empty state in `MasonryGrid` and pass `emptyKind` plus a clear callback from `Gallery`. | `docs/designMasonry.md` section 16 gives the empty state to the grid. The grid still needs context to tell the two cases apart. |
 | DP6 | How to stop the initial-render fade? | Try `mount(..., { intro: false })` in a short spike. If it reaches child transitions, use it. Otherwise gate `animate` in `Gallery` state, initially `false`. | `docs/designMasonry.md` section 8.5 requires a still first paint. The state gate also makes the dead `animate` prop meaningful. |
+
+**Status (2026-10-28).** The DP3 confirmation proposal is superseded; see T-09.
 
 ## 6. Non-Goals
 

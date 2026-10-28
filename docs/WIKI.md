@@ -337,14 +337,14 @@ export async function downloadCharacterImage(character: Character): Promise<void
 
 `sanitizeFilename` removes the characters `\ / : * ? " < > |`, the control characters, the leading and trailing space, and the trailing dots. It returns `character` for an empty result and for the reserved Windows device names (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`), with or without an extension.
 
-`downloadCharacterImage` writes a PNG file:
+`downloadCharacterImage` prepares a PNG blob and requests a browser download:
 
 1. Parse the data URL.
 2. PNG source: decode the base64 text straight to a blob.
 3. Other image types: draw the image on a canvas and export `image/png`.
-4. Create an object URL, click a temporary link, and release the URL after 60 seconds.
+4. Create an object URL, click a temporary link, and schedule the URL's release after 60 seconds.
 
-Do not release the object URL immediately. The browser reads the blob after the click returns. A release at once can cancel the download.
+The link click hands the request to the browser; it does not confirm that the browser or operating system saved a file. Do not release the object URL immediately. The browser reads the blob after the click returns, so an immediate release can cancel the download.
 
 ### `src/download-attempts.svelte.ts`
 
@@ -437,7 +437,7 @@ The reduced-motion preference is read one time at component creation. A change o
 
 Props: `character`, `onOpen`, `selectMode`, `selected`, `onToggleSelect`, `onDownload`.
 
-The card is a `figure` with `break-inside-avoid`, so a column break never splits it. The inner `button` has the character name as its label. The image sits in a frame whose `aspect-ratio` comes from `src/image-frame.ts`: the stored `width`/`height` pair supplies it only when both are finite and positive, otherwise the complete 4:3 fallback does, so one stored dimension is never paired with one fallback one.
+The card is a `figure` with `break-inside-avoid`, so a column break never splits it. In browse mode, the card button has the Character name as its label. In selection mode, the card is a label for one native checkbox. The image sits in a `span` inside a frame whose `aspect-ratio` comes from `src/image-frame.ts`: the stored `width`/`height` pair supplies it only when both are finite and positive, otherwise the complete 4:3 fallback does, so one stored dimension is never paired with one fallback one.
 
 The image uses `loading="lazy"` and `decoding="async"`. The `width` and `height` attributes are set only from a complete stored pair, so the browser reserves the space before the image decodes.
 
@@ -455,7 +455,7 @@ The displayed image sits in a frame whose aspect ratio comes from `src/image-fra
 
 The notice snippet is the page's download notice, which the dialog renders inside its own content beside the Download action. The dialog does not own the notice and does not close or focus for it.
 
-The `close` event is the only teardown path. `teardown` restores the focus to the element that opened the dialog and calls `onClose`, which clears `selectedCharacter` in `Gallery`. Do not add a second teardown path. A second path makes the state and the focus depend on which path ran first.
+The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent: it restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`, which clears `selectedCharacter` in `Gallery`. Keep both routes coordinated through this one teardown function.
 
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
 

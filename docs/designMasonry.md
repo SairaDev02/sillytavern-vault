@@ -435,7 +435,17 @@ Recommended error UI:
 
 - small neutral icon/label,
 - retain the card dimensions,
-- provide a retry action when the failure is recoverable.
+- no per-card retry control; the existing Download action can be used to try a
+  failed download again, and the existing Edit workflow can replace an image.
+
+Current status: `MasonryItem.svelte` does not track image loading or failure and
+has no image `error` handler or custom fallback. The `Image unavailable` state
+and the rule that reserves the frame from stored dimensions only when both are
+finite and positive
+(otherwise the complete 4:3 fallback) are approved follow-on work in
+[#23](https://github.com/SairaDev02/sillytavern-vault/issues/23) and
+[#32](https://github.com/SairaDev02/sillytavern-vault/issues/32), not current
+behavior.
 
 Do not replace a failed image with a dynamically sized error element because that can cause masonry columns to reflow unexpectedly.
 
@@ -450,8 +460,12 @@ open
   ├── previous()
   ├── next()
   ├── escape -> closed
-  └── background click -> closed
+  ├── close button -> closed
+  └── edit / delete -> closed
 ```
+
+A backdrop click does not close the dialog; `Lightbox.svelte` registers no
+handler for it.
 
 ### Requirements
 
@@ -463,6 +477,9 @@ open
 - support previous/next buttons,
 - preload adjacent images when useful,
 - prevent background interaction while the modal is open.
+
+This checklist is design guidance. The current lightbox does not explicitly
+preload adjacent images.
 
 The lightbox should not change the masonry layout.
 
