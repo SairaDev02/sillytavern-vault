@@ -5,6 +5,7 @@
     type CharacterDraft,
     type LibraryStatus,
   } from './character-library.svelte';
+  import { DownloadAttempts } from './download-attempts.svelte';
   import type { Character } from './types';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
@@ -25,6 +26,12 @@
   // One library per page. It is the only writer of Character records and the
   // only owner of the list; this shell renders what the library publishes.
   const library = new CharacterLibrary();
+
+  // One owner of download attempts and their notice per page, beside the
+  // library: an attempt still in flight when the Gallery is torn down keeps
+  // running, and its failure still reaches the page. It is separate state from
+  // `deleteNotice`, so neither notice overwrites the other.
+  const downloads = new DownloadAttempts();
 
   let editingCharacter = $state<Character | null>(null);
   let showForm = $state(false);
@@ -136,6 +143,28 @@
       </div>
     {/if}
 
+    <!-- Page content, above the form branch, so a download that fails while the
+         Gallery is gone is still reported. It never moves focus or reopens a
+         dialog. Presenting it inside an open lightbox comes later. -->
+    {#if downloads.notice}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class="mb-6 flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-secondary px-4 py-3"
+      >
+        <p class="text-sm text-zinc-300">{downloads.message}</p>
+        <button
+          type="button"
+          onclick={() => downloads.dismiss()}
+          aria-label="Dismiss download notice"
+          class="rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        >
+          Dismiss
+        </button>
+      </div>
+    {/if}
+
     <!-- The library state, so a screen reader can follow loading and recovery.
          It is the page's whole content while loading; otherwise it repeats in
          words what the page already shows. -->
@@ -188,6 +217,7 @@
         onEdit={startEdit}
         onDelete={handleDelete}
         onDeleteMany={handleDeleteMany}
+        onDownload={(character) => downloads.start(character)}
       />
     {/if}
   </main>

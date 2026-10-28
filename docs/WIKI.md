@@ -53,17 +53,18 @@ The app is one page with six layers: the entry point, the page shell, the statef
 graph TD
   main["main.ts"] --> App
   App["App.svelte: page shell"] --> characterLibrary["character-library.svelte.ts: the Character library"]
+  App --> downloads["download-attempts.svelte.ts: download attempts and notice"]
   App --> Gallery
   App --> CharacterForm["CharacterForm.svelte"]
   characterLibrary --> db["db.ts"]
   characterLibrary --> id["id.ts"]
   characterLibrary --> image["image.ts"]
+  downloads --> download["download.ts"]
   Gallery["Gallery.svelte: view state"] --> GalleryToolbar["GalleryToolbar.svelte"]
   Gallery --> MasonryGrid["MasonryGrid.svelte"]
   Gallery --> Lightbox["Lightbox.svelte"]
   Gallery --> galleryUtils["gallery-utils.ts"]
   MasonryGrid --> MasonryItem["MasonryItem.svelte"]
-  MasonryItem --> download["download.ts"]
   CharacterForm --> selectedImage["selected-image.svelte.ts"]
   selectedImage --> image
 ```
@@ -73,7 +74,8 @@ Rules of the design:
 - `character-library.svelte.ts` owns the database connection and the canonical `characters` list. It is the only writer of Character records. `App.svelte` reads the list and renders it. It never builds a record, preserves a creation time, or reloads the library after a save.
 - `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the selected character.
 - Child components receive data and callbacks through props. They never import the database.
-- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts` and `character-library.svelte.ts` are stateful modules with injected dependencies; one `SelectedImage` belongs to one form draft, and one `CharacterLibrary` belongs to one page lifetime.
+- The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts`, `character-library.svelte.ts`, and `download-attempts.svelte.ts` are stateful modules; one `SelectedImage` belongs to one form draft, and one `CharacterLibrary` and one `DownloadAttempts` belong to one page lifetime.
+- `Gallery.svelte` and `Lightbox.svelte` do not download anything themselves. Each reports the Character the user asked to download through `onDownload`, so the page keeps the attempt and its notice when the Gallery is torn down.
 - `CharacterForm.svelte` owns the text fields, the save action, and the save-time locking. `SelectedImage` owns the image choice, its dimensions, readiness, and recovery. `CharacterLibrary` owns identity, creation time, the size pair rules, and delete outcomes.
 
 ### Data flow for a save
@@ -93,7 +95,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 |---|---|
 | `index.html` | HTML entry page. It loads `src/main.ts`. |
 | `src/main.ts` | Mounts `App` into `#app` and imports `style.css`. |
-| `src/App.svelte` | Page shell. Renders the start-up, failure, and ready states, the delete notice, and the form or gallery. No storage knowledge. |
+| `src/App.svelte` | Page shell. Renders the start-up, failure, and ready states, the delete and download notices, and the form or gallery. No storage knowledge. |
 | `src/types.ts` | The `Character` interface. |
 | `src/character-library.svelte.ts` | `CharacterLibrary`, the only writer of Character records and the owner of the canonical list. |
 | `src/library-error.ts` | `LibraryError` and `LibraryErrorKind`, with no storage imports, so a component can branch on an error kind without the database. |
@@ -101,6 +103,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/id.ts` | `generateId`. |
 | `src/image.ts` | `measureImage`, which reads the intrinsic size of an image. |
 | `src/selected-image.svelte.ts` | `SelectedImage`, the form-owned selected-image preparation module. |
+| `src/download-attempts.svelte.ts` | `DownloadAttempts`, the page-owned download attempts and their failure notice. |
 | `src/gallery-utils.ts` | Page size, the sort type, and the search and sort rules. |
 | `src/download.ts` | Data URL parsing, PNG conversion, file name rules, and the download action. |
 | `src/style.css` | The Tailwind import and the color theme. |
@@ -438,7 +441,7 @@ Behavior:
 
 **Lightbox navigation.** The arrows change `selectedCharacter` through `onSelect`. The dialog stays open and shows the new record.
 
-**Download.** The card button and the lightbox button call `downloadCharacterImage`. A failure goes to the console.
+**Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite page notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog.
 
 ## 11. Styling and Layout
 
@@ -498,9 +501,10 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
-| `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, and focus transitions. |
+| `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
+| `tests/download-attempts.test.ts` | Download ordering and the notice through the owner's public interface: detected failure versus handoff, the captured Character, dismissal, and cross-Character independence. The helper is mocked, so each attempt settles when the test says. |
 | `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
 
 Helpers:
