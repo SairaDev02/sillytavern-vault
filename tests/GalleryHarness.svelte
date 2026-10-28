@@ -11,11 +11,20 @@
   export function setCharacters(next: Character[]) {
     characters = next;
   }
+
+  const edited: string[] = [];
+
+  /** Test hook: the ids the Gallery asked the page to edit. */
+  export function editedIds() {
+    return edited;
+  }
 </script>
 
 <Gallery
   {characters}
-  onEdit={() => {}}
+  onEdit={(id) => {
+    edited.push(id);
+  }}
   onDelete={() => {}}
   onDeleteMany={async () => true}
 />
