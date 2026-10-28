@@ -376,9 +376,11 @@ The reduced-motion preference is read one time at component creation. A change o
 
 Props: `character`, `onOpen`, `selectMode`, `selected`, `onToggleSelect`, `onDownload`.
 
-The card is a `figure` with `break-inside-avoid`, so a column break never splits it. The inner `button` has the character name as its label. The image sits in a `div` with `aspect-ratio: width / height`. The fallback ratio is 4 / 3 when a record has no size yet.
+The card is a `figure` with `break-inside-avoid`, so a column break never splits it. The inner `button` has the character name as its label. The image sits in a frame whose `aspect-ratio` comes from `src/image-frame.ts`: the stored `width`/`height` pair supplies it only when both are finite and positive, otherwise the complete 4:3 fallback does, so one stored dimension is never paired with one fallback one.
 
-The image uses `loading="lazy"` and `decoding="async"`. `width` and `height` are set from the record, so the browser reserves the space before the image decodes.
+The image uses `loading="lazy"` and `decoding="async"`. The `width` and `height` attributes are set only from a complete stored pair, so the browser reserves the space before the image decodes.
+
+An `error` on the card image replaces it with an "Image unavailable" fallback inside the same reserved frame. The failure is recorded against the source string that failed, so replacing `character.image` — including under the same Character id — clears it, and a late error from a replaced source cannot mark its replacement. The browse button or selection checkbox keeps its name and native checked state and describes the failure through `aria-describedby`; card failures are not announced globally.
 
 The hover label and the download button fade in on hover and on focus. Only the transitions are disabled under reduced motion. The states themselves always apply.
 
