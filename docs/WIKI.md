@@ -102,6 +102,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/db.ts` | IndexedDB schema and the read and write functions. |
 | `src/id.ts` | `generateId`. |
 | `src/image.ts` | `measureImage`, which reads the intrinsic size of an image. |
+| `src/image-frame.ts` | The frame rule for every image view: the stored size pair, the 4:3 fallback, and the check that a failure still describes the displayed source. |
 | `src/selected-image.svelte.ts` | `SelectedImage`, the form-owned selected-image preparation module. |
 | `src/download-attempts.svelte.ts` | `DownloadAttempts`, the page-owned download attempts and their failure notice. |
 | `src/gallery-utils.ts` | Page size, the sort type, and the search and sort rules. |
@@ -141,7 +142,7 @@ export interface Character {
 
 Rules:
 
-- `width` and `height` must describe `image`. A wrong value distorts the card shape, because `MasonryItem` reserves the space from these numbers.
+- `width` and `height` must describe `image`. A usable pair reserves the card shape before the image decodes. A pair that is not both finite and positive does not: every image view uses the complete 4:3 fallback instead, so a wrong value shows the wrong shape but never one stored side paired with one fallback side. See `src/image-frame.ts`.
 - When the size is unknown, leave both fields empty. `CharacterLibrary` measures them in the background after start-up.
 - `createdAt` never changes after the first save. `CharacterLibrary` copies the stored value during an edit, so the sort order stays stable.
 
@@ -187,6 +188,24 @@ export function measureImage(src: string): Promise<{ width: number; height: numb
 ```
 
 Loads the source in an `Image` element and resolves with `naturalWidth` and `naturalHeight`. The promise rejects when the image does not load. The function reads the image again from the data URL, so the browser does not need a network request.
+
+### `src/image-frame.ts`
+
+```ts
+export const FALLBACK_IMAGE_SIZE = { width: 4, height: 3 };
+export const IMAGE_UNAVAILABLE_TEXT = 'Image unavailable';
+export function isUsableImageSize(size: { width?: number; height?: number } | null | undefined): boolean;
+export function imageFrameSize(size: { width?: number; height?: number } | null | undefined): { width: number; height: number };
+export function imageFrameAspectRatio(size: { width?: number; height?: number } | null | undefined): string;
+export function isImageUnavailable(source: string, failedSource: string | null): boolean;
+```
+
+One display rule for the card and the lightbox:
+
+- `isUsableImageSize` is true only when both stored numbers are finite and greater than zero. A missing, zero, negative, or non-finite half says nothing reliable about the image, so it supplies neither side of the frame.
+- `imageFrameSize` and `imageFrameAspectRatio` return the stored pair when it is usable, and the complete 4:3 fallback otherwise. A stored dimension is never paired with a fallback one.
+- The rule is for display only. It reads the Character and writes nothing, so a record with an unusable pair keeps that pair until an edit replaces it.
+- `isImageUnavailable` answers whether a recorded failure still describes the image on screen. A failure is recorded as the source string that failed, so replacing `character.image` clears it, including under the same Character id, and a late error from a replaced source cannot mark its replacement.
 
 ### `src/character-library.svelte.ts`
 
@@ -325,20 +344,50 @@ export async function downloadCharacterImage(character: Character): Promise<void
 
 Do not release the object URL immediately. The browser reads the blob after the click returns. A release at once can cancel the download.
 
+### `src/download-attempts.svelte.ts`
+
+```ts
+export interface DownloadNotice {
+  characterId: string;
+  characterName: string;
+}
+export class DownloadAttempts {
+  readonly notice: DownloadNotice | null;
+  readonly message: string | null;
+  start(character: Character): void;
+  dismiss(): void;
+}
+```
+
+One instance belongs to one page lifetime, beside the Character library. `start` captures the Character's identity and name, calls `downloadCharacterImage`, and keeps the outcome here, so an attempt still in flight survives the Gallery being torn down when a form opens. The module hides these rules from the page shell:
+
+- A rejection is a detected preparation failure. It is logged and becomes the one notice, whose message names the initiating Character.
+- A resolution is a browser handoff. It is never shown as a saved file; it clears that Character's notice and leaves any other Character's notice alone.
+- Outcomes are ordered per initiating Character by attempt number, so an older completion cannot override a newer one. Different Characters are ordered independently.
+- `dismiss` clears the notice. The existing Download action is the way to try again; there is no per-Character retry control.
+
+The module imports `downloadCharacterImage` from `src/download.ts` directly. `tests/download-attempts.test.ts` mocks that module, so each attempt settles when the test says.
+
 ## 9. Components
 
 ### `App.svelte`
 
-Constructs one `CharacterLibrary` for the page lifetime and disposes it on destroy. Owns `editingCharacter`, `showForm`, and `deleteNotice`. The library owns the list and the start-up state.
+Constructs one `CharacterLibrary` and one `DownloadAttempts` for the page lifetime, and disposes the library on destroy. Owns `editingCharacter`, `showForm`, `deleteNotice`, `lightboxOpen`, and the heading that Retry focuses. The library owns the list and the start-up state. The download owner holds the attempts and their notice, which is separate state from `deleteNotice`, so neither notice overwrites the other.
 
 | Callback | Behavior |
 |---|---|
 | `handleSave(draft)` | Passes the draft to `CharacterLibrary.save`. On success it clears the delete notice, closes the form, and clears the edit target. On rejection it leaves both alone and lets the rejection reach the form. |
 | `handleDelete(id)` | Asks for a confirmation, calls `CharacterLibrary.remove`, and on failure sets the page delete notice. A canceled confirmation never calls the library. |
 | `handleDeleteMany(ids)` | Asks for a confirmation, calls `CharacterLibrary.removeMany`, and returns a boolean. A canceled or failed delete returns false, which keeps the selection. |
-| `retry()` | Calls `CharacterLibrary.initialize()` again. It never deletes or replaces stored records. |
+| `retry()` | Moves focus to the page heading, then calls `CharacterLibrary.initialize()` again. It never deletes or replaces stored records. |
 
 The markup shows one of four states: the form, the loading text, the start-up failure with Retry, or the gallery. The Add action is disabled outside the ready state. The delete notice sits above the form and the gallery, so it survives closing the lightbox. The form is inside `{#key editingCharacter?.id ?? 'new'}`. The key makes a new form instance for each target, so the form state can never belong to another character.
+
+The start-up state is also exposed as status. One persistent polite live region carries `Loading your character library...`, `Your character library could not be opened.`, or `Your character library is ready.`. It is the page's visible text while loading and visually hidden afterwards, so the transition is available without repeating what the page already shows. The failure alert carries the reason and the sentence that Retry will not delete or replace stored Characters. It does not claim that unread data is still present, because a failed read cannot establish that.
+
+Retry removes itself as soon as loading starts, so the handler focuses the heading first. A completion never focuses again: the heading, or whatever the user has moved to since, keeps the focus. Focus is never moved by an asynchronous outcome.
+
+The page renders its one download notice in exactly one place. With no lightbox open it sits in page content above the form and the gallery, so a failure that lands while the form is open is still reported. With a lightbox open, the same snippet is passed into the dialog, which renders it inside its own content. The notice is polite status, is never a focus target, and never reopens a dialog. `lightboxOpen` comes from the Gallery through `onLightboxChange`, so the shell never assumes a dialog it cannot see.
 
 The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or `image.ts`.
 
@@ -400,6 +449,10 @@ Props: `character`, `characters`, `onEdit`, `onDelete`, `onClose`, `onSelect`, `
 
 The component renders a `<dialog>` with `aria-labelledby`. `showModal` traps the focus and blocks the background. The dialog closes on Escape through the browser, on the close button, and on the Edit and Delete actions. The previous and next buttons change the record and keep the dialog open.
 
+The displayed image sits in a frame whose aspect ratio comes from `src/image-frame.ts`, so the same stored-pair rule and the same 4:3 fallback as a card apply. The frame takes its width from the viewport, capped by a 60vh height at that ratio, so loading or failing never pushes the actions off screen and never reshapes the dialog. An `error` replaces the image with "Image unavailable" in the same frame. The failure records the Character and the source it happened on, so moving to another Character, or replacing the source under the same Character id, starts the next view without it. The failure is polite status and is not a focus target: the dialog keeps its focus and stays open.
+
+The notice snippet is the page's download notice, which the dialog renders inside its own content beside the Download action. The dialog does not own the notice and does not close or focus for it.
+
 The `close` event is the only teardown path. `teardown` restores the focus to the element that opened the dialog and calls `onClose`, which clears `selectedCharacter` in `Gallery`. Do not add a second teardown path. A second path makes the state and the focus depend on which path ran first.
 
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
@@ -427,7 +480,7 @@ Behavior:
 
 **Startup.** `main.ts` mounts `App`. The page constructs one `CharacterLibrary` and calls `initialize` from `onMount`. The shell renders the loading state until the read finishes, then the gallery. Old records without a size are measured in the background and do not block the first paint.
 
-**Start-up failure.** A failed open or a failed initial read puts the library in the `failed` state with a message and an empty list. The shell shows the failure with Retry and keeps the Add action disabled. Retry calls `initialize` again; stored records are never deleted or replaced.
+**Start-up failure.** A failed open or a failed initial read puts the library in the `failed` state with a message and an empty list. The shell shows the failure with Retry, keeps the Add action disabled, and reports the outcome as polite status. Retry moves focus to the page heading before the Retry control disappears, then calls `initialize` again; stored records are never deleted or replaced, and the completion moves no focus.
 
 **Add.** The user clicks **+ Add Character**. The form mounts with the key `new`. A save sends a draft with no id; the library assigns a new identity and the current time.
 
@@ -437,7 +490,7 @@ Behavior:
 
 **Delete.** One delete comes from the lightbox, a batch delete from the toolbar. Both ask for a confirmation first in the page shell. The lightbox closes before the confirmation appears. A failed delete sets one page notice, and a failed batch delete also keeps the selection.
 
-**Search and sort.** `Gallery` computes `filteredCharacters` from the full list on every change. The page count returns to the first page.
+**Search and sort.** `Gallery` computes `filteredCharacters` from the full list on every change. The page count returns to the first page. A library with no Characters shows its own message even while a search term is present, because genuine emptiness is read from the canonical list. A search that matches nothing shows the no-match message and Clear search, which takes the same path as typing and moves focus to the search field, or to the first rendered checkbox in selection mode.
 
 **Paging.** The observer adds 24 records when the sentinel becomes visible. The count stops at the length of the filtered list, so the app never asks for a page that does not exist.
 
@@ -484,7 +537,11 @@ The shared focus outline in `src/style.css` is unlayered so it overrides the exi
 - The download button has an `aria-label` with the character name.
 - The dialog has an accessible name through `aria-labelledby`.
 - The dialog traps the focus and restores it on close.
-- Every image has an `alt` text or an empty `alt`.
+- A displayed image is an `img` whose `alt` is the Character name. An image that cannot be displayed is replaced by "Image unavailable" in the same reserved frame, so no `img` remains to describe the missing picture.
+- On a card, the failure is an accessible description of the existing browse button or selection checkbox through `aria-describedby`. The Character name and the native checked state stay unchanged, and a card failure is not announced globally, so a Gallery with many failures does not read out one message per card.
+- In the lightbox, the displayed image failure is polite status. It does not move focus and does not change the dialog.
+- Loading, failure, and readiness are exposed as polite status. Activating Retry moves focus to the page heading, and the asynchronous completion moves no focus.
+- A detected download failure is polite status in the visible context, inside the open dialog or in page content. It is rendered once, never moves focus, and never reopens a dialog.
 - The reduced-motion preference stops the animation, not the function.
 - The shared focus outline makes focused controls identifiable. Selection cards have an additional two-tone focus indicator over artwork.
 - This slice repairs identified contrast barriers. It is not a claim of application-wide WCAG conformance.
@@ -502,6 +559,9 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/download.test.ts` | The data URL parser, the blob conversion, and the file name rules. |
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
+| `tests/gallery-empty-state.test.ts` | The mounted Gallery: genuine empty library versus no matches, Clear search focus in browse and selection modes, and the Cancel fallback. |
+| `tests/gallery-card-image.test.ts` | The mounted card: the reserved frame from usable and unusable pairs, the failure fallback and its description, the preserved actions, and source replacement. |
+| `tests/lightbox-image.test.ts` | The mounted dialog: the reserved frame, polite status, the failure following the displayed Character and source, and late events from a replaced source. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
 | `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
@@ -513,6 +573,7 @@ Helpers:
 
 - `tests/fixtures.ts` holds `PNG_1X1`, `makeCharacter` / `makeCharacters`, `makeFile`, and `deferred`.
 - `tests/GalleryHarness.svelte` mounts `Gallery` and exposes `setCharacters`, so a test can change the list the way `App` does.
+- `tests/LightboxHarness.svelte` mounts `Lightbox` with a replaceable Character list and a chosen open Character, so a test can replace a record under the same id.
 - `tests/character-library.test.ts` constructs `CharacterLibrary` with real storage helpers pointed at a unique database per test, and controls measurement, identity, the clock, and held writes.
 - `tests/setup.ts` adds `fake-indexeddb` and stand-ins for the browser interfaces that jsdom does not supply: `matchMedia`, the Web Animations API, and the `<dialog>` methods.
 
@@ -590,6 +651,22 @@ A manual check ran in headless Chrome 156 on Windows against the production buil
 
 This is a manual smoke check, not part of `npm test`. Re-run it when the library, the page shell, or the delete notice changes. The injected faults are not browser validation of a real storage failure, only of the recovery path in a real browser.
 
+### Browser smoke check for gallery states, image failures, and download feedback
+
+A manual check ran in headless Chrome 156.0.8078.49 on Windows 11 against the production build, served with `vite preview` on port 4390 and driven through `playwright-cli`. The viewport was 1280 by 720 at a device pixel ratio of 1. Records were seeded through the real IndexedDB API, and faults were injected in the page: a failing `indexedDB.open`, a routed image source that delayed and then returned 500, an undecodable data URL, a non-data URL image for the download preparation, and a failing object-store `delete`. The check confirmed:
+
+- A genuinely empty library showed "No characters yet. Add one above!", with Add enabled and the ready status. A search that matched nothing showed "No characters match your search." and Clear search.
+- The native keyboard order in the no-match state is the search field, the sort control, Select, then Clear search. Enter on Clear search restored the results, kept the sort choice, and moved focus to the search field; the status region said "Search results restored.". Typing a narrower term that still matched stayed silent, so only the transition into no matches and back was announced.
+- Selection mode entered from a no-match search focused Cancel, because no checkbox existed. Enter on Clear search then restored the results and focused the first rendered checkbox, checked nothing, and kept selection mode.
+- A failing `indexedDB.open` showed the failure alert with the reason and the sentence that Retry will not delete or replace stored Characters, with Add disabled and no cards. Tab reached Retry, Enter moved focus to the page heading, and neither the later asynchronous failure nor the eventual recovery moved focus again. The recovery read back the same twelve records, so Retry deleted and replaced nothing. Each failure reached the console.
+- An undecodable data URL produced a real decode failure: the image reported a natural size of 0 by 0, then the card showed "Image unavailable" with no `img` left. Card frames measured 288 by 192 px from a stored 300 by 200 pair, 288 by 180 px from a stored 320 by 200 pair, and 288 by 216 px, the complete 4:3 fallback, for a missing pair and for zero, negative, infinite, and NaN pairs. A stored partial pair went from 4:3 to 288 by 180 px when the background repair measured and stored the image. A routed source that was still pending measured the same frame as it did after failing.
+- The lightbox measured 648 by 432 px from the same 300 by 200 pair while pending and after failing, and 576 by 432 px, 4:3, for a record with no pair and for zero and non-finite pairs. The failure was polite status and the dialog stayed open. Moving to the previous Character re-derived the frame and the failure from that record, so the earlier failure was not carried across.
+- The browse button read as `Broken pair` with the description "Image unavailable". The selection checkbox kept `Select Broken pair` and its unchecked state, with the same description through `aria-describedby`.
+- A download that failed while the lightbox was open showed one notice inside the dialog and none in page content. Closing the dialog moved that one notice to page content and restored focus to the card. The same notice stayed visible with the form open, and a later handoff for another Character did not clear it. The handoff emitted a browser download event named `Valid pair.png`. A failing delete added the delete notice beside the download notice without replacing it.
+- Measured contrast, taken from rendered colours and from pixel samples of element screenshots: Clear search text 11.54:1 at rest, 10.08:1 on hover, and a focus outline of 12.84:1. Retry 4.69:1 at rest, 4.98:1 on hover, and a 3.53:1 focus outline against the accent fill. The no-match message 5.33:1. The failure heading 5.75:1, its body 10.75:1, and the reason 6.06:1. The card failure text 10.08:1, and the white inner ring of its focus indicator 14.89:1 against the frame. The lightbox failure text 10.08:1, and its Download button 9.6:1 at rest, 7.07:1 on hover, with a 7.23:1 focus outline. The download notice text 10.75:1, and its Dismiss button 10.75:1 at rest, 10.08:1 on hover, with an 11.21:1 focus outline.
+
+This is a manual smoke check, not part of `npm test`. It does not prove the following. Android, Firefox, and Safari were not checked. No screen reader was run, so the announcements, their timing, and their usability are unverified. The browser emitted a download event, but nothing here shows that the browser or the operating system wrote the file, and no save completion is claimed. The injected faults exercise the recovery paths in a real browser; they are not a real storage or network failure. These numbers are not a claim of application-wide WCAG conformance. Re-run the check when the empty states, the image frame, or the download notice changes.
+
 ## 14. Verification and Build
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
@@ -651,7 +728,9 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 
 - The app reads every record into memory at start. It renders 24 cards at a time, but the browser holds the whole library.
 - The image is a base64 string. This form is about one third larger than the binary data, and the string stays in memory. A blob store plus a thumbnail would scale better.
-- A card shows no error state when an image fails to decode. The card keeps its shape, but the user sees an empty frame.
+- An unavailable image is reported once, not repaired. There is no per-image retry control and no automatic reload of a failed source, so the card keeps the fallback until the image is replaced or the page is reloaded.
+- A record whose stored size pair is unusable is displayed with the 4:3 fallback and is left as it is. The background repair only treats a record with no dimensions as unmeasured, so an unusable pair survives until an edit replaces it. The picture is then drawn at 4:3 in any window, whatever its real shape.
+- Download feedback covers a failure the application can detect while preparing the file. A handoff to the browser is not proof that the browser or the operating system saved it, so the application never reports a saved file, and a failure that happens after the handoff is invisible to it.
 - The lightbox does not close on a click on the backdrop. Escape and the close button work.
 - `Gallery` passes `animate={true}` to `MasonryGrid` as a literal, so the `animate` prop of that component is not reachable from the app today.
 - The list animation cost grows with the number of rendered cards. The default page size limits the effect.
