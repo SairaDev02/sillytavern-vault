@@ -4,7 +4,18 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import App from '../src/App.svelte';
 import { openDB, dbGetAll, STORE_NAME } from '../src/db';
 import type { Character } from '../src/types';
-import { makeCharacter } from './fixtures';
+import { deferred, makeCharacter } from './fixtures';
+
+// The download helper is the seam the spec names. Mocking it here lets a test
+// decide when the page's attempt settles, instead of depending on the browser.
+vi.mock('../src/download', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/download')>()),
+  downloadCharacterImage: vi.fn(),
+}));
+
+import { downloadCharacterImage } from '../src/download';
+
+const downloadImage = vi.mocked(downloadCharacterImage);
 
 const DB_NAME = 'character-gallery';
 
@@ -115,6 +126,8 @@ describe('App', () => {
     vi.stubGlobal('Image', FakeImage);
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.stubGlobal('alert', vi.fn());
+    downloadImage.mockReset();
+    downloadImage.mockResolvedValue(undefined);
     target = document.createElement('div');
     document.body.appendChild(target);
   });
@@ -256,6 +269,37 @@ describe('App', () => {
     target
       .querySelector<HTMLFormElement>('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  /** One download attempt whose settlement this test decides. */
+  function beginDownload() {
+    const pending = deferred<void>();
+    downloadImage.mockReturnValueOnce(pending.promise);
+    return pending;
+  }
+
+  /** The existing per-card Download control for one Character. */
+  function cardDownload(name: string): HTMLButtonElement {
+    const button = target.querySelector<HTMLButtonElement>(
+      `button[aria-label="Download ${name}"]`
+    );
+    if (!button) throw new Error(`No card Download control for ${name}`);
+    return button;
+  }
+
+  /** The download-failure notice, wherever the currently visible view puts it. */
+  function downloadNotice(): HTMLElement | undefined {
+    return liveRegions().find((element) => /could not download/i.test(element.textContent ?? ''));
+  }
+
+  function dismissDownloadNotice() {
+    const notice = downloadNotice();
+    if (!notice) throw new Error('No download notice to dismiss');
+    const button = [...notice.querySelectorAll('button')].find((candidate) =>
+      /dismiss/i.test(candidate.textContent ?? '')
+    );
+    if (!button) throw new Error('No dismiss control in the download notice');
+    button.click();
   }
 
   async function openLightbox() {
@@ -1113,5 +1157,186 @@ describe('App', () => {
 
     expect(figures()).toHaveLength(0);
     expectFocusOn(buttonWithText('Select'), 'the Select control');
+  });
+
+  it('shows a detected download failure as polite status naming the Character', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const pending = beginDownload();
+    cardDownload('Aria').click();
+    await settle();
+    // Work in flight is not an outcome, so nothing is claimed yet.
+    expect(downloadNotice()).toBeUndefined();
+    expect(downloadImage).toHaveBeenCalledWith(expect.objectContaining({ name: 'Aria' }));
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    const notice = downloadNotice()!;
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.getAttribute('aria-live')).toBe('polite');
+    expect(notice.textContent).toContain('Aria');
+    expect(notice.textContent).toMatch(/download/i);
+    // The existing Download action is the only retry, so no control was added.
+    expect(cardDownload('Aria')).toBeDefined();
+  });
+
+  it('keeps a pending attempt and its failure in the page while the form is open', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitForReady();
+
+    const pending = beginDownload();
+    cardDownload('Aria').click();
+    await settle();
+
+    // Opening the form tears the Gallery down while the attempt is in flight.
+    buttonWithText('+ Add Character')!.click();
+    await settle();
+    expect(target.querySelector('form')).not.toBeNull();
+    expect(figures()).toHaveLength(0);
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    expect(downloadNotice()!.textContent).toContain('Aria');
+    expect(downloadNotice()!.getAttribute('aria-live')).toBe('polite');
+
+    // An existing notice survives the form closing and the Gallery returning.
+    buttonWithText('Cancel')!.click();
+    await settle();
+    expect(figures()).toHaveLength(1);
+    expect(downloadNotice()!.textContent).toContain('Aria');
+  });
+
+  it("does not attribute a pending failure to the Character shown later", async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+
+    const pending = beginDownload();
+    cardDownload('Aria').click();
+    await settle();
+
+    // The user moves on to another Character while the attempt is in flight.
+    await openLightbox();
+    expect(dialog()!.querySelector('h2')?.textContent?.trim()).toBe('Bram');
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    expect(downloadNotice()!.textContent).toContain('Aria');
+    expect(downloadNotice()!.textContent).not.toContain('Bram');
+  });
+
+  it('routes the lightbox Download through the page notice without moving focus', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const pending = beginDownload();
+    const download = buttonWithText('Download')!;
+    download.focus();
+    download.click();
+    await settle();
+    expect(downloadImage).toHaveBeenCalledWith(expect.objectContaining({ name: 'Aria' }));
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    expect(downloadNotice()!.textContent).toContain('Aria');
+    // Completion neither reopens nor closes the dialog and leaves focus alone.
+    expect(dialog()?.open).toBe(true);
+    expectFocusOn(download, 'the lightbox Download button');
+  });
+
+  it('does not reopen the dialog or move focus when a download settles after closing', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const pending = beginDownload();
+    buttonWithText('Download')!.click();
+    await settle();
+
+    target.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click();
+    await settle();
+    expect(dialog()).toBeNull();
+    const focusAfterClose = document.activeElement;
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(focusAfterClose);
+    expect(downloadNotice()!.textContent).toContain('Aria');
+  });
+
+  it('clears the notice when the same Character is handed off again', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const pending = beginDownload();
+    cardDownload('Aria').click();
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+
+    // The helper resolves on the retry, which is a browser handoff.
+    cardDownload('Aria').click();
+    await waitFor(() => expect(downloadNotice()).toBeUndefined());
+  });
+
+  it('keeps the delete notice independent of download feedback', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Doomed' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const restore = await breakStoreMethod('delete');
+    await openLightbox();
+    buttonWithText('Delete')!.click();
+    await waitFor(() =>
+      expect(target.textContent).toContain('Could not delete the Character')
+    );
+    await settle();
+    restore();
+
+    const pending = beginDownload();
+    cardDownload('Doomed').click();
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotice()).toBeDefined());
+    await settle();
+
+    // Download feedback is its own notice and does not replace the delete one.
+    expect(target.textContent).toContain('Could not delete the Character');
+    expect(downloadNotice()!.textContent).toContain('Doomed');
+
+    dismissDownloadNotice();
+    await settle();
+
+    expect(downloadNotice()).toBeUndefined();
+    expect(target.textContent).toContain('Could not delete the Character');
+    expect(
+      liveRegions().some((element) => /Could not delete the Character/.test(element.textContent ?? ''))
+    ).toBe(true);
   });
 });

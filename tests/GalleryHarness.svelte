@@ -27,4 +27,5 @@
   }}
   onDelete={() => {}}
   onDeleteMany={async () => true}
+  onDownload={() => {}}
 />

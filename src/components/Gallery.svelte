@@ -2,7 +2,6 @@
 
   import { tick } from 'svelte';
   import type { Character } from '../types';
-  import { downloadCharacterImage } from '../download';
   import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
   import GalleryToolbar from './GalleryToolbar.svelte';
   import MasonryGrid from './MasonryGrid.svelte';
@@ -11,11 +10,14 @@
   const NO_MATCH_MESSAGE = 'No characters match your search.';
   const RESULTS_RESTORED_MESSAGE = 'Search results restored.';
 
-  let { characters, onEdit, onDelete, onDeleteMany }: {
+  let { characters, onEdit, onDelete, onDeleteMany, onDownload }: {
     characters: Character[];
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
     onDeleteMany: (ids: string[]) => Promise<boolean>;
+    // The page owns the attempt and its notice, so the Gallery only reports the
+    // Character the user asked to download.
+    onDownload: (character: Character) => void;
   } = $props();
 
   // Search and sort state
@@ -195,12 +197,6 @@
     await tick();
     selectButton?.focus();
   }
-
-  function handleDownload(character: Character) {
-    downloadCharacterImage(character).catch((err) => {
-      console.error('Download failed:', err);
-    });
-  }
 </script>
 
 <GalleryToolbar
@@ -228,7 +224,7 @@
     selectMode={selectMode}
     selectedIds={selectedIds}
     onToggleSelect={toggleSelect}
-    onDownload={handleDownload}
+    onDownload={onDownload}
   />
 </div>
 
@@ -260,4 +256,5 @@
   onDelete={onDelete}
   onClose={closeLightbox}
   onSelect={openCharacter}
+  onDownload={onDownload}
 />

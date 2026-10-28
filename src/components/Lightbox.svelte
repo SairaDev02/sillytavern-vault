@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Character } from '../types';
-  import { downloadCharacterImage } from '../download';
   import {
     IMAGE_UNAVAILABLE_TEXT,
     imageFrameAspectRatio,
@@ -15,13 +14,15 @@
     source: string;
   }
 
-  let { character, characters, onEdit, onDelete, onClose, onSelect }: {
+  let { character, characters, onEdit, onDelete, onClose, onSelect, onDownload }: {
     character: Character | null;
     characters: Character[];
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
     onClose: () => void;
     onSelect: (id: string) => void;
+    // The page owns the attempt and its notice; the dialog only asks for it.
+    onDownload: (character: Character) => void;
   } = $props();
 
   let dialogEl = $state<HTMLDialogElement | undefined>(undefined);
@@ -127,7 +128,7 @@
 
   function handleDownload() {
     if (!character) return;
-    downloadCharacterImage(character).catch((err) => console.error('Download failed:', err));
+    onDownload(character);
   }
 
   function handleEdit() {

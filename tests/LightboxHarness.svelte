@@ -61,4 +61,5 @@
   }}
   onClose={() => (shownId = null)}
   onSelect={show}
+  onDownload={() => {}}
 />
