@@ -344,11 +344,13 @@ The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or
 
 ### `Gallery.svelte`
 
-Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`.
+Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`, `onDownload`, `notice`, `onLightboxChange`.
 
 State: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
 
 Derived: `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
+
+`onLightboxChange` reports whether a dialog is open, because the page decides where its one download notice is presented. A Gallery that is torn down reports the dialog closed, so the page never keeps a notice it has nowhere to show.
 
 Behavior:
 
@@ -394,7 +396,7 @@ The hover label and the download button fade in on hover and on focus. Only the 
 
 ### `Lightbox.svelte`
 
-Props: `character`, `characters`, `onEdit`, `onDelete`, `onClose`, `onSelect`.
+Props: `character`, `characters`, `onEdit`, `onDelete`, `onClose`, `onSelect`, `onDownload`, `notice`. The `notice` snippet is the page's download notice, which the dialog renders inside its own content while it is open.
 
 The component renders a `<dialog>` with `aria-labelledby`. `showModal` traps the focus and blocks the background. The dialog closes on Escape through the browser, on the close button, and on the Edit and Delete actions. The previous and next buttons change the record and keep the dialog open.
 
@@ -441,7 +443,7 @@ Behavior:
 
 **Lightbox navigation.** The arrows change `selectedCharacter` through `onSelect`. The dialog stays open and shows the new record.
 
-**Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite page notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog.
+**Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
 ## 11. Styling and Layout
 

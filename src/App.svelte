@@ -37,6 +37,9 @@
   let showForm = $state(false);
   // Kept in the page shell so a delete failure survives closing the lightbox.
   let deleteNotice = $state<string | null>(null);
+  // Reported by the Gallery, which owns the dialog, so this shell can present
+  // the one download notice where the user is looking.
+  let lightboxOpen = $state(false);
   // The stable landmark that receives focus when Retry removes itself.
   let heading = $state<HTMLHeadingElement | undefined>(undefined);
 
@@ -102,7 +105,35 @@
     heading?.focus();
     void library.initialize();
   }
+
+  function handleLightboxChange(open: boolean) {
+    lightboxOpen = open;
+  }
 </script>
+
+<!--
+  The page's one download notice. It is presented in page content or inside the
+  open lightbox, never both, so a screen reader can only reach it once. It is
+  polite status: nothing focuses it and nothing announces on its behalf.
+-->
+{#snippet downloadNotice()}
+  <div
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    class="flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-secondary px-4 py-3"
+  >
+    <p class="text-sm text-zinc-300">{downloads.message}</p>
+    <button
+      type="button"
+      onclick={() => downloads.dismiss()}
+      aria-label="Dismiss download notice"
+      class="rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+    >
+      Dismiss
+    </button>
+  </div>
+{/snippet}
 
 <div class="min-h-screen bg-bg-primary text-zinc-200">
   <header class="border-b-2 border-border bg-bg-secondary px-6 py-5 sm:px-10">
@@ -145,24 +176,10 @@
 
     <!-- Page content, above the form branch, so a download that fails while the
          Gallery is gone is still reported. It never moves focus or reopens a
-         dialog. Presenting it inside an open lightbox comes later. -->
-    {#if downloads.notice}
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        class="mb-6 flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-secondary px-4 py-3"
-      >
-        <p class="text-sm text-zinc-300">{downloads.message}</p>
-        <button
-          type="button"
-          onclick={() => downloads.dismiss()}
-          aria-label="Dismiss download notice"
-          class="rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        >
-          Dismiss
-        </button>
-      </div>
+         dialog. While a lightbox is open the same notice moves inside that
+         dialog instead of being hidden behind it. -->
+    {#if downloads.notice !== null && !lightboxOpen}
+      <div class="mb-6">{@render downloadNotice()}</div>
     {/if}
 
     <!-- The library state, so a screen reader can follow loading and recovery.
@@ -218,6 +235,8 @@
         onDelete={handleDelete}
         onDeleteMany={handleDeleteMany}
         onDownload={(character) => downloads.start(character)}
+        notice={downloads.notice !== null && lightboxOpen ? downloadNotice : undefined}
+        onLightboxChange={handleLightboxChange}
       />
     {/if}
   </main>
