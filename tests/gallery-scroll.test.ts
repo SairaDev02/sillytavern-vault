@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import GalleryHarness from './GalleryHarness.svelte';
-import { makeCharacters } from './fixtures';
+import { makeCharacter, makeCharacters } from './fixtures';
 
 /**
  * Minimal IntersectionObserver double. It records every observer and the
@@ -104,9 +104,20 @@ describe('Gallery incremental loading', () => {
     [...target.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'Select'
     ) as HTMLButtonElement | undefined;
+  const clearSearchButton = () =>
+    [...target.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Clear search'
+    ) as HTMLButtonElement | undefined;
   const checkboxes = () => [
     ...target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
   ];
+
+  async function fillSearch(value: string) {
+    const input = target.querySelector<HTMLInputElement>('input[type="search"]')!;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+  }
 
   it('renders one page, then loads another page when the sentinel is visible', async () => {
     await start(30);
@@ -183,5 +194,30 @@ describe('Gallery incremental loading', () => {
     await settle();
 
     expect(renderedCount()).toBe(30);
+  });
+
+  it('starts the restored results at the first page when a search is cleared', async () => {
+    await start(30);
+
+    // Search matches the whole library, so the sentinel can add a second page.
+    await fillSearch('Character');
+    activeObserver()?.trigger(true);
+    await settle();
+    expect(renderedCount()).toBe(30);
+
+    // The library is replaced while the term is still active, so the same term
+    // now matches nothing: the Gallery is in its no-match state, not empty.
+    app!.setCharacters(
+      Array.from({ length: 30 }, (_, i) => makeCharacter(i + 1, { name: `Card ${i + 1}` }))
+    );
+    await settle();
+    expect(renderedCount()).toBe(0);
+
+    clearSearchButton()!.click();
+    await settle();
+
+    // Clear search is an ordinary search change: the first page comes back.
+    expect(renderedCount()).toBe(24);
+    expect(hasSentinel()).toBe(true);
   });
 });
