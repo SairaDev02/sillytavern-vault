@@ -1,32 +1,59 @@
 <script lang="ts">
 
   import { tick } from 'svelte';
+  import type { Snippet } from 'svelte';
   import type { Character } from '../types';
-  import { downloadCharacterImage } from '../download';
   import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
   import GalleryToolbar from './GalleryToolbar.svelte';
   import MasonryGrid from './MasonryGrid.svelte';
   import Lightbox from './Lightbox.svelte';
 
-  let { characters, onEdit, onDelete, onDeleteMany }: {
+  const NO_MATCH_MESSAGE = 'No characters match your search.';
+  const RESULTS_RESTORED_MESSAGE = 'Search results restored.';
+
+  let { characters, onEdit, onDelete, onDeleteMany, onDownload, notice, onLightboxChange }: {
     characters: Character[];
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
     onDeleteMany: (ids: string[]) => Promise<boolean>;
+    // The page owns the attempt and its notice, so the Gallery only reports the
+    // Character the user asked to download.
+    onDownload: (character: Character) => void;
+    // The page decides where its one notice is presented, which needs to know
+    // whether a dialog is open. This Gallery owns that state, so it reports it
+    // rather than making the page inspect the DOM.
+    notice?: Snippet;
+    onLightboxChange?: (open: boolean) => void;
   } = $props();
 
   // Search and sort state
   let searchTerm = $state('');
   let sortMode = $state<SortMode>('newest');
 
-  // Selected character for lightbox
-  let selectedCharacter: Character | null = $state(null);
+  // The open Character is held by identity, not by a copy. The library is the
+  // only owner of the record, so a published change reaches the dialog instead
+  // of leaving it on a snapshot taken when the card was opened.
+  let selectedId = $state<string | null>(null);
+  let selectedCharacter = $derived(
+    selectedId === null ? null : characters.find((candidate) => candidate.id === selectedId) ?? null
+  );
+
+  // The page presents its one download notice in exactly one place, so it needs
+  // the dialog's state. One report per change.
+  $effect(() => {
+    onLightboxChange?.(selectedCharacter !== null);
+  });
+
+  // A Gallery that is torn down takes its dialog with it, so a page still told
+  // that a dialog is open would have nowhere to present the notice.
+  $effect(() => () => onLightboxChange?.(false));
 
   // Batch selection state
   let selectMode = $state(false);
   let selectedIds: string[] = $state([]);
   let selectButton: HTMLButtonElement | undefined = $state();
   let cancelButton: HTMLButtonElement | undefined = $state();
+  let searchInput: HTMLInputElement | undefined = $state();
   let grid: HTMLDivElement | undefined = $state();
 
   // Incremental loading
@@ -40,6 +67,43 @@
 
   let visibleCharacters = $derived(filteredCharacters.slice(0, visibleCount));
   let hasMore = $derived(visibleCount < filteredCharacters.length);
+
+  /**
+   * Why no card is shown. Genuine emptiness is derived from the canonical
+   * library rather than from the rendered page, so it takes precedence over a
+   * search that matched nothing.
+   */
+  let emptyState = $derived<'none' | 'empty-library' | 'no-matches'>(
+    characters.length === 0
+      ? 'empty-library'
+      : filteredCharacters.length === 0
+        ? 'no-matches'
+        : 'none'
+  );
+
+  // Only the search transitions are announced. A surviving live region whose
+  // text changes says what a screen reader needs, while narrowing a result list
+  // stays silent: no count is read out per keystroke. A genuinely empty library
+  // is visible on its own and is never announced here.
+  let searchStatus = $state('');
+  let lastEmptyState: typeof emptyState = 'none';
+
+  $effect(() => {
+    const current = emptyState;
+    const previous = lastEmptyState;
+    lastEmptyState = current;
+
+    if (current === previous) return;
+    if (current === 'no-matches') {
+      searchStatus = NO_MATCH_MESSAGE;
+    } else if (current === 'none' && previous === 'no-matches') {
+      searchStatus = RESULTS_RESTORED_MESSAGE;
+    } else if (current === 'empty-library') {
+      // The genuine empty message speaks for itself, so the search status must
+      // not keep claiming that a search is what hides the Characters.
+      searchStatus = '';
+    }
+  });
 
   // Watch the sentinel whenever it exists. `sentinelEl` is state, so this effect
   // re-runs when the sentinel is added, recreated, or removed. That matters:
@@ -72,16 +136,31 @@
     visibleCount = PAGE_SIZE; // The first page of a new order starts at the top
   }
 
+  /**
+   * Clear search is an ordinary search change, so it takes the same path as
+   * typing and keeps the sort order, the selection, and the selection mode.
+   * Only the recovery focus depends on the mode: browse returns to Search, while
+   * selection continues at the first card of the restored list.
+   */
+  async function handleClearSearch() {
+    handleSearchChange('');
+    await tick();
+    if (selectMode) {
+      focusFirstRenderedCheckbox();
+    } else {
+      searchInput?.focus();
+    }
+  }
+
   function openCharacter(id: string) {
     if (selectMode) return; // Don't open lightbox in select mode
-    const char = characters.find((c) => c.id === id);
-    if (char) {
-      selectedCharacter = char;
+    if (characters.some((candidate) => candidate.id === id)) {
+      selectedId = id;
     }
   }
 
   function closeLightbox() {
-    selectedCharacter = null;
+    selectedId = null;
   }
 
   function toggleSelect(id: string) {
@@ -92,15 +171,23 @@
     }
   }
 
-  async function handleEnterSelectMode() {
-    selectMode = true;
-    await tick();
-    // Outgoing animated cards can still be in the DOM; focus the first card
-    // in the current rendered list, not an obsolete outgoing element.
+  /**
+   * Focus the first card of the current rendered list without toggling it.
+   * Outgoing animated cards can still be in the DOM, so match the current list
+   * instead of taking the first checkbox in document order. With no card to
+   * continue from, Cancel is the way out of selection mode.
+   */
+  function focusFirstRenderedCheckbox() {
     const firstId = visibleCharacters[0]?.id;
     const first = [...(grid?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])]
       .find((input) => input.dataset.characterId === firstId);
     (first ?? cancelButton)?.focus();
+  }
+
+  async function handleEnterSelectMode() {
+    selectMode = true;
+    await tick();
+    focusFirstRenderedCheckbox();
   }
 
   async function handleDeleteSelected() {
@@ -120,12 +207,6 @@
     await tick();
     selectButton?.focus();
   }
-
-  function handleDownload(character: Character) {
-    downloadCharacterImage(character).catch((err) => {
-      console.error('Download failed:', err);
-    });
-  }
 </script>
 
 <GalleryToolbar
@@ -140,7 +221,10 @@
   onCancelSelect={handleCancelSelect}
   bind:selectButton
   bind:cancelButton
+  bind:searchInput
 />
+
+<span role="status" aria-live="polite" aria-atomic="true" class="sr-only">{searchStatus}</span>
 
 <div bind:this={grid}>
   <MasonryGrid
@@ -150,9 +234,24 @@
     selectMode={selectMode}
     selectedIds={selectedIds}
     onToggleSelect={toggleSelect}
-    onDownload={handleDownload}
+    onDownload={onDownload}
   />
 </div>
+
+{#if emptyState === 'empty-library'}
+  <p class="py-16 text-center text-zinc-500">No characters yet. Add one above!</p>
+{:else if emptyState === 'no-matches'}
+  <div class="py-16 text-center">
+    <p class="text-zinc-500">{NO_MATCH_MESSAGE}</p>
+    <button
+      type="button"
+      onclick={handleClearSearch}
+      class="mt-4 rounded-lg border border-zinc-500 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+    >
+      Clear search
+    </button>
+  </div>
+{/if}
 
 {#if hasMore}
   <div bind:this={sentinelEl} class="py-8 text-center">
@@ -167,4 +266,6 @@
   onDelete={onDelete}
   onClose={closeLightbox}
   onSelect={openCharacter}
+  onDownload={onDownload}
+  {notice}
 />

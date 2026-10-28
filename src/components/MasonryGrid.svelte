@@ -24,25 +24,21 @@
   let fadeDurationOut = $derived(animate && !reduceMotion ? 140 : 0);
 </script>
 
-{#if characters.length === 0}
-  <p class="col-span-full text-center text-zinc-500 py-16">No characters yet. Add one above!</p>
-{:else}
-  <div class="columns-[14rem] gap-4 sm:columns-[16rem] lg:columns-[18rem]">
-    {#each characters as char (char.id)}
-      <div
-        animate:flip={{ duration: flipDuration }}
-        in:fade={{ duration: fadeDurationIn }}
-        out:fade={{ duration: fadeDurationOut }}
-      >
-        <MasonryItem
-          character={char}
-          onOpen={onOpen}
-          selectMode={selectMode}
-          selected={selectedIds.includes(char.id)}
-          onToggleSelect={onToggleSelect}
-          onDownload={onDownload}
-        />
-      </div>
-    {/each}
-  </div>
-{/if}
+<div class="columns-[14rem] gap-4 sm:columns-[16rem] lg:columns-[18rem]">
+  {#each characters as char (char.id)}
+    <div
+      animate:flip={{ duration: flipDuration }}
+      in:fade={{ duration: fadeDurationIn }}
+      out:fade={{ duration: fadeDurationOut }}
+    >
+      <MasonryItem
+        character={char}
+        onOpen={onOpen}
+        selectMode={selectMode}
+        selected={selectedIds.includes(char.id)}
+        onToggleSelect={onToggleSelect}
+        onDownload={onDownload}
+      />
+    </div>
+  {/each}
+</div>
