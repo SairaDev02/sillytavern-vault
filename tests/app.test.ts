@@ -487,6 +487,9 @@ describe('App', () => {
     await seedDatabase([]);
 
     start();
+    // The status text is filled in after the region is in the document, so one
+    // flush brings the first paint into place.
+    await tick();
     // The first paint is the loading state, not an empty gallery.
     expect(target.textContent).toContain('Loading your character library');
     expect(target.textContent).not.toContain('No characters yet');
@@ -640,6 +643,8 @@ describe('App', () => {
     await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
 
     start();
+    // The text arrives after the region, so one flush is the first paint.
+    await tick();
     // The first paint is loading, and that state is announced as status.
     expect(statusText()).toContain('Loading your character library');
     expect(buttonWithText('+ Add Character')!.disabled).toBe(true);
@@ -649,6 +654,33 @@ describe('App', () => {
     expect(statusText()).toMatch(/character library is ready/i);
     expect(statusText()).not.toContain('Loading your character library');
     expect(buttonWithText('+ Add Character')!.disabled).toBe(false);
+  });
+
+  it('creates the status region empty so its first text is an announced change', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    // Hold the library open, so the page stays in its loading state while the
+    // first text arrives.
+    const pending = await holdStorageOpen(globalThis.indexedDB);
+
+    start();
+    // The region is in the document before its text is. An assistive technology
+    // is only obliged to announce a change to a region that already existed, so
+    // a region created with its text is never announced.
+    const region = target.querySelector<HTMLElement>('[role="status"]');
+    expect(region, 'the status region exists at first paint').not.toBeNull();
+    expect(region!.isConnected).toBe(true);
+    expect(region!.textContent).toBe('');
+
+    // The loading text arrives as a change to that region, not as its creation.
+    await tick();
+    expect(region!.textContent).toBe('Loading your character library...');
+
+    pending.release();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    // The outcome reaches the same region, so the transition stays followable.
+    expect(target.querySelector('[role="status"]')).toBe(region);
+    expect(region!.textContent).toMatch(/character library is ready/i);
   });
 
   it('explains a failed start without claiming stored Characters are still there', async () => {

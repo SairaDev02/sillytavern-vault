@@ -38,15 +38,8 @@
     selectedId === null ? null : characters.find((candidate) => candidate.id === selectedId) ?? null
   );
 
-  // A Character that left the library closes the dialog; forgetting its id also
-  // stops a later record with the same id from reopening it.
-  $effect(() => {
-    if (selectedId !== null && selectedCharacter === null) selectedId = null;
-  });
-
   // The page presents its one download notice in exactly one place, so it needs
-  // the dialog's state. One report per change, including the closing caused by
-  // the Character leaving the library above.
+  // the dialog's state. One report per change.
   $effect(() => {
     onLightboxChange?.(selectedCharacter !== null);
   });

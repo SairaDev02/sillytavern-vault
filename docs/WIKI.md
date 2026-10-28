@@ -194,18 +194,20 @@ Loads the source in an `Image` element and resolves with `naturalWidth` and `nat
 ```ts
 export const FALLBACK_IMAGE_SIZE = { width: 4, height: 3 };
 export const IMAGE_UNAVAILABLE_TEXT = 'Image unavailable';
-export function isUsableImageSize(size: { width?: number; height?: number } | null | undefined): boolean;
+export function isUsableImageSize(size: { width?: number; height?: number } | null | undefined): size is { width: number; height: number };
 export function imageFrameSize(size: { width?: number; height?: number } | null | undefined): { width: number; height: number };
 export function imageFrameAspectRatio(size: { width?: number; height?: number } | null | undefined): string;
+export function failedImageSource(event: Event): string | null;
 export function isImageUnavailable(source: string, failedSource: string | null): boolean;
 ```
 
 One display rule for the card and the lightbox:
 
-- `isUsableImageSize` is true only when both stored numbers are finite and greater than zero. A missing, zero, negative, or non-finite half says nothing reliable about the image, so it supplies neither side of the frame.
+- `isUsableImageSize` is true only when both stored numbers are finite and greater than zero. A missing, zero, negative, or non-finite half says nothing reliable about the image, so it supplies neither side of the frame. It is a type predicate, so `imageFrameSize` narrows the stored pair instead of asserting it.
 - `imageFrameSize` and `imageFrameAspectRatio` return the stored pair when it is usable, and the complete 4:3 fallback otherwise. A stored dimension is never paired with a fallback one.
 - The rule is for display only. It reads the Character and writes nothing, so a record with an unusable pair keeps that pair until an edit replaces it.
 - `isImageUnavailable` answers whether a recorded failure still describes the image on screen. A failure is recorded as the source string that failed, so replacing `character.image` clears it, including under the same Character id, and a late error from a replaced source cannot mark its replacement.
+- `failedImageSource` is the one place the failing element's source is read. The card and the lightbox record a failure against that string and keep their own state; the lightbox adds its own gate on the Character it shows.
 
 ### `src/character-library.svelte.ts`
 
@@ -722,7 +724,7 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 | `untrack` in the form | The form snapshots the prop on purpose. `App` keys the form by target, so the snapshot is always correct. |
 | 60-second object URL lifetime | The browser reads the blob after the click returns. An immediate release can cancel a download. |
 | Rejection on `abort` in `db.ts` | An aborted transaction fires only `abort`. Without a handler, the promise never settles. |
-| Empty state inside the column container | The message sits in the same box as the cards, so the layout code stays in one place. The `col-span-full` class on it has no effect there and can be removed. |
+| Empty state in `Gallery`, not `MasonryGrid` | `MasonryGrid` receives only the rendered page, so it cannot tell an empty library from a search that matched nothing. Both empty messages belong to `Gallery`, which reads the canonical list. |
 
 ## 17. Known Limits
 

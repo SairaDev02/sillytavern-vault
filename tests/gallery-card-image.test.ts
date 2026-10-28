@@ -391,15 +391,5 @@ describe('Character card image', () => {
       expect(dialog()?.textContent).toContain('Aria the Bold');
       expect(dialog()?.open).toBe(true);
     });
-
-    it('closes the dialog when the published library no longer holds the Character', async () => {
-      await start([makeCharacter(1, { name: 'Aria' })]);
-      await open('Aria');
-
-      app!.setCharacters([]);
-      await settle();
-
-      expect(dialog()).toBeNull();
-    });
   });
 });

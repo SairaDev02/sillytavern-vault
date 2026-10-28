@@ -42,6 +42,14 @@
   let lightboxOpen = $state(false);
   // The stable landmark that receives focus when Retry removes itself.
   let heading = $state<HTMLHeadingElement | undefined>(undefined);
+  // Empty at creation on purpose. An assistive technology only announces a
+  // change to a live region that already existed, so the region is rendered
+  // empty and its text arrives after the element is in the document.
+  let statusMessage = $state('');
+
+  $effect(() => {
+    statusMessage = STATUS_MESSAGE[library.status];
+  });
 
   onMount(() => {
     void library.initialize();
@@ -104,10 +112,6 @@
     // page heading first. Nothing focuses again when the retry completes.
     heading?.focus();
     void library.initialize();
-  }
-
-  function handleLightboxChange(open: boolean) {
-    lightboxOpen = open;
   }
 </script>
 
@@ -193,7 +197,7 @@
         ? 'py-12 text-center text-zinc-400'
         : 'sr-only'}
     >
-      {STATUS_MESSAGE[library.status]}
+      {statusMessage}
     </p>
 
     {#if showForm}
@@ -236,7 +240,7 @@
         onDeleteMany={handleDeleteMany}
         onDownload={(character) => downloads.start(character)}
         notice={downloads.notice !== null && lightboxOpen ? downloadNotice : undefined}
-        onLightboxChange={handleLightboxChange}
+        onLightboxChange={(open) => (lightboxOpen = open)}
       />
     {/if}
   </main>

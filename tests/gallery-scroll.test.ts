@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import GalleryHarness from './GalleryHarness.svelte';
 import { makeCharacter, makeCharacters } from './fixtures';
+import { PAGE_SIZE } from '../src/gallery-utils';
 
 /**
  * Minimal IntersectionObserver double. It records every observer and the
@@ -122,7 +123,7 @@ describe('Gallery incremental loading', () => {
   it('renders one page, then loads another page when the sentinel is visible', async () => {
     await start(30);
 
-    expect(renderedCount()).toBe(24);
+    expect(renderedCount()).toBe(PAGE_SIZE);
     expect(hasSentinel()).toBe(true);
 
     activeObserver()?.trigger(true);
@@ -154,13 +155,13 @@ describe('Gallery incremental loading', () => {
   it('focuses the first rendered checkbox when selection mode starts', async () => {
     // More Characters than one page, so the list is filtered and truncated.
     await start(30);
-    expect(renderedCount()).toBe(24);
+    expect(renderedCount()).toBe(PAGE_SIZE);
 
     selectButton()!.click();
     await settle();
 
     const boxes = checkboxes();
-    expect(boxes).toHaveLength(24);
+    expect(boxes).toHaveLength(PAGE_SIZE);
 
     // Focus lands on the first checkbox in the rendered document order, not on
     // a Character that the filter matched but the page has not rendered yet.
@@ -217,7 +218,7 @@ describe('Gallery incremental loading', () => {
     await settle();
 
     // Clear search is an ordinary search change: the first page comes back.
-    expect(renderedCount()).toBe(24);
+    expect(renderedCount()).toBe(PAGE_SIZE);
     expect(hasSentinel()).toBe(true);
   });
 });

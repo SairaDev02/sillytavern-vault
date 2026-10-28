@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Character } from '../types';
   import {
+    failedImageSource,
     IMAGE_UNAVAILABLE_TEXT,
     imageFrameAspectRatio,
     imageFrameSize,
@@ -38,7 +39,7 @@
    * unavailable.
    */
   function handleImageError(event: Event) {
-    const shown = (event.currentTarget as HTMLImageElement | null)?.getAttribute('src');
+    const shown = failedImageSource(event);
     if (shown) failedSource = shown;
   }
 

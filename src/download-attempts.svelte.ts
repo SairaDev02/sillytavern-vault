@@ -59,8 +59,8 @@ export class DownloadAttempts {
     };
 
     void downloadCharacterImage(character).then(
-      () => this.#settle(attempt, notice, 'handed-off'),
-      (error) => this.#settle(attempt, notice, 'failed', error)
+      () => this.#handedOff(attempt, notice),
+      (error) => this.#failed(attempt, notice, error)
     );
   }
 
@@ -70,27 +70,27 @@ export class DownloadAttempts {
   }
 
   /**
-   * Apply one attempt's outcome unless a newer attempt for the same Character
-   * has already been applied. Different Characters are ordered independently,
-   * so their outcomes are never treated as interchangeable.
+   * Apply a failure: it is logged as the detected failure it is, and it becomes
+   * the one notice. An attempt that settles after a newer one for the same
+   * Character is stale and changes nothing. Different Characters are ordered
+   * independently, so their outcomes are never treated as interchangeable.
    */
-  #settle(
-    attempt: number,
-    notice: DownloadNotice,
-    outcome: 'failed' | 'handed-off',
-    error?: unknown
-  ): void {
-    if (outcome === 'failed') {
-      console.error('Download failed:', error);
-    }
+  #failed(attempt: number, notice: DownloadNotice, error: unknown): void {
+    console.error('Download failed:', error);
     if (attempt <= (this.#applied.get(notice.characterId) ?? 0)) return;
     this.#applied.set(notice.characterId, attempt);
+    this.#notice = notice;
+  }
 
-    if (outcome === 'failed') {
-      this.#notice = notice;
-    } else if (this.#notice?.characterId === notice.characterId) {
-      // A handoff is not proof the file was saved, but it does resolve this
-      // Character's pending feedback.
+  /**
+   * Apply a handoff, under the same per-Character ordering as a failure. It is
+   * not proof the file was saved, but it does resolve this Character's pending
+   * feedback; another Character's notice is left alone.
+   */
+  #handedOff(attempt: number, notice: DownloadNotice): void {
+    if (attempt <= (this.#applied.get(notice.characterId) ?? 0)) return;
+    this.#applied.set(notice.characterId, attempt);
+    if (this.#notice?.characterId === notice.characterId) {
       this.#notice = null;
     }
   }
