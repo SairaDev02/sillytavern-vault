@@ -287,19 +287,32 @@ describe('App', () => {
     return button;
   }
 
+  /**
+   * Every download-failure presentation in the document. The page owns one
+   * notice, so a second entry here is a duplicate the user could hit twice.
+   */
+  function downloadNotices(): HTMLElement[] {
+    return liveRegions().filter((element) => /could not download/i.test(element.textContent ?? ''));
+  }
+
   /** The download-failure notice, wherever the currently visible view puts it. */
   function downloadNotice(): HTMLElement | undefined {
-    return liveRegions().find((element) => /could not download/i.test(element.textContent ?? ''));
+    return downloadNotices()[0];
+  }
+
+  /** The Dismiss control belonging to a download notice. */
+  function dismissControl(notice: HTMLElement): HTMLButtonElement {
+    const button = [...notice.querySelectorAll('button')].find((candidate) =>
+      /dismiss/i.test(candidate.textContent ?? '')
+    );
+    if (!button) throw new Error('No dismiss control in the download notice');
+    return button;
   }
 
   function dismissDownloadNotice() {
     const notice = downloadNotice();
     if (!notice) throw new Error('No download notice to dismiss');
-    const button = [...notice.querySelectorAll('button')].find((candidate) =>
-      /dismiss/i.test(candidate.textContent ?? '')
-    );
-    if (!button) throw new Error('No dismiss control in the download notice');
-    button.click();
+    dismissControl(notice).click();
   }
 
   async function openLightbox() {
@@ -1200,6 +1213,8 @@ describe('App', () => {
     await settle();
     expect(target.querySelector('form')).not.toBeNull();
     expect(figures()).toHaveLength(0);
+    // With no dialog open the notice belongs to the page content.
+    expect(dialog()).toBeNull();
 
     pending.reject(new Error('invalid data URL'));
     await waitFor(() => expect(downloadNotice()).toBeDefined());
@@ -1303,6 +1318,177 @@ describe('App', () => {
     // The helper resolves on the retry, which is a browser handoff.
     cardDownload('Aria').click();
     await waitFor(() => expect(downloadNotice()).toBeUndefined());
+  });
+
+  it('presents a download failure inside the open lightbox, then back in the page', async () => {
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+
+    // The attempt starts from Aria's card, so the outcome belongs to Aria.
+    const pending = beginDownload();
+    cardDownload('Aria').click();
+    await settle();
+
+    // The user opens a different Character while the attempt is in flight.
+    await openLightbox();
+    expect(dialog()!.querySelector('h2')?.textContent?.trim()).toBe('Bram');
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotices()).toHaveLength(1));
+    await settle();
+
+    // One presentation, inside the dialog, still naming the Character that
+    // started the attempt rather than the one on display.
+    expect(downloadNotices()).toHaveLength(1);
+    const inDialog = downloadNotices()[0];
+    expect(dialog()!.contains(inDialog)).toBe(true);
+    expect(inDialog.getAttribute('role')).toBe('status');
+    expect(inDialog.getAttribute('aria-live')).toBe('polite');
+    expect(inDialog.textContent).toContain('Aria');
+    expect(inDialog.textContent).not.toContain('Bram');
+
+    // Closing the dialog returns the same notice to the page content.
+    target.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click();
+    await settle();
+
+    expect(dialog()).toBeNull();
+    expect(downloadNotices()).toHaveLength(1);
+    const inPage = downloadNotices()[0];
+    expect(inPage.textContent).toContain('Aria');
+    expect(target.querySelector('main')!.contains(inPage)).toBe(true);
+  });
+
+  it('transfers the download notice without moving focus or reopening the dialog', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const pending = beginDownload();
+    const download = buttonWithText('Download')!;
+    download.focus();
+    download.click();
+    await settle();
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotices()).toHaveLength(1));
+    await settle();
+
+    // Arriving in the dialog does not take focus from the action that failed.
+    expect(dialog()!.contains(downloadNotices()[0])).toBe(true);
+    expectFocusOn(download, 'the lightbox Download button');
+
+    target.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click();
+    await settle();
+
+    // Leaving the dialog neither reopens it nor takes focus for the notice.
+    expect(dialog()).toBeNull();
+    expect(downloadNotices()).toHaveLength(1);
+    expect(downloadNotices()[0].contains(document.activeElement)).toBe(false);
+    expect(document.activeElement?.closest('dialog')).toBeNull();
+    expect(dialog()).toBeNull();
+  });
+
+  it('dismisses the download notice from inside the lightbox', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const pending = beginDownload();
+    buttonWithText('Download')!.click();
+    await settle();
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotices()).toHaveLength(1));
+    await settle();
+
+    const notice = downloadNotices()[0];
+    expect(dialog()!.contains(notice)).toBe(true);
+
+    dismissControl(notice).click();
+    await settle();
+
+    // Dismissing in the dialog clears the one page-owned notice everywhere.
+    expect(downloadNotices()).toHaveLength(0);
+    expect(dialog()?.open).toBe(true);
+  });
+
+  it('keeps the delete notice in the page while the download notice is in the dialog', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Doomed' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const restore = await breakStoreMethod('delete');
+    buttonWithText('Delete')!.click();
+    await waitFor(() =>
+      expect(target.textContent).toContain('Could not delete the Character')
+    );
+    await settle();
+    restore();
+    expect(dialog()).toBeNull();
+
+    // A download failure now settles while the dialog is open again.
+    const pending = beginDownload();
+    cardDownload('Doomed').click();
+    await settle();
+    await openLightbox();
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotices()).toHaveLength(1));
+    await settle();
+
+    expect(dialog()!.contains(downloadNotices()[0])).toBe(true);
+    expect(dialog()!.textContent).not.toContain('Could not delete the Character');
+    expect(target.textContent).toContain('Could not delete the Character');
+
+    dismissControl(downloadNotices()[0]).click();
+    await settle();
+
+    expect(downloadNotices()).toHaveLength(0);
+    expect(
+      liveRegions().some((element) =>
+        /Could not delete the Character/.test(element.textContent ?? '')
+      )
+    ).toBe(true);
+    expect(dialog()?.open).toBe(true);
+  });
+
+  it('keeps the notice in page content when the lightbox hands over to the form', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const pending = beginDownload();
+    buttonWithText('Download')!.click();
+    await settle();
+
+    pending.reject(new Error('invalid data URL'));
+    await waitFor(() => expect(downloadNotices()).toHaveLength(1));
+    await settle();
+    expect(dialog()!.contains(downloadNotices()[0])).toBe(true);
+
+    // Edit closes the dialog and opens the form, which tears the Gallery down.
+    buttonWithText('Edit')!.click();
+    await waitFor(() => expect(target.querySelector('#char-name')).not.toBeNull());
+    await settle();
+
+    // The notice is still presented, in page content, that one time.
+    expect(dialog()).toBeNull();
+    expect(downloadNotices()).toHaveLength(1);
+    expect(downloadNotices()[0].textContent).toContain('Aria');
+    expect(target.querySelector('main')!.contains(downloadNotices()[0])).toBe(true);
   });
 
   it('keeps the delete notice independent of download feedback', async () => {

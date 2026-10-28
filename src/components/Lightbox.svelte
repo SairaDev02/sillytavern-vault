@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { Character } from '../types';
   import {
     IMAGE_UNAVAILABLE_TEXT,
@@ -14,7 +15,7 @@
     source: string;
   }
 
-  let { character, characters, onEdit, onDelete, onClose, onSelect, onDownload }: {
+  let { character, characters, onEdit, onDelete, onClose, onSelect, onDownload, notice }: {
     character: Character | null;
     characters: Character[];
     onEdit: (id: string) => void;
@@ -23,6 +24,9 @@
     onSelect: (id: string) => void;
     // The page owns the attempt and its notice; the dialog only asks for it.
     onDownload: (character: Character) => void;
+    // The page renders the notice inside the dialog while it is open, so the
+    // same notice is never outside it as well.
+    notice?: Snippet;
   } = $props();
 
   let dialogEl = $state<HTMLDialogElement | undefined>(undefined);
@@ -244,6 +248,13 @@
 
       {#if character.description}
         <p class="text-zinc-300">{character.description}</p>
+      {/if}
+
+      <!-- The page's download notice, presented where the user is. It sits in
+           the dialog's own content, beside the Download action that raised it,
+           and is neither a focus target nor a reason to change the dialog. -->
+      {#if notice}
+        {@render notice()}
       {/if}
 
       <div class="flex gap-2">

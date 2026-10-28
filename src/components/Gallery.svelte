@@ -1,6 +1,7 @@
 <script lang="ts">
 
   import { tick } from 'svelte';
+  import type { Snippet } from 'svelte';
   import type { Character } from '../types';
   import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
   import GalleryToolbar from './GalleryToolbar.svelte';
@@ -10,7 +11,7 @@
   const NO_MATCH_MESSAGE = 'No characters match your search.';
   const RESULTS_RESTORED_MESSAGE = 'Search results restored.';
 
-  let { characters, onEdit, onDelete, onDeleteMany, onDownload }: {
+  let { characters, onEdit, onDelete, onDeleteMany, onDownload, notice, onLightboxChange }: {
     characters: Character[];
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
@@ -18,6 +19,11 @@
     // The page owns the attempt and its notice, so the Gallery only reports the
     // Character the user asked to download.
     onDownload: (character: Character) => void;
+    // The page decides where its one notice is presented, which needs to know
+    // whether a dialog is open. This Gallery owns that state, so it reports it
+    // rather than making the page inspect the DOM.
+    notice?: Snippet;
+    onLightboxChange?: (open: boolean) => void;
   } = $props();
 
   // Search and sort state
@@ -37,6 +43,17 @@
   $effect(() => {
     if (selectedId !== null && selectedCharacter === null) selectedId = null;
   });
+
+  // The page presents its one download notice in exactly one place, so it needs
+  // the dialog's state. One report per change, including the closing caused by
+  // the Character leaving the library above.
+  $effect(() => {
+    onLightboxChange?.(selectedCharacter !== null);
+  });
+
+  // A Gallery that is torn down takes its dialog with it, so a page still told
+  // that a dialog is open would have nowhere to present the notice.
+  $effect(() => () => onLightboxChange?.(false));
 
   // Batch selection state
   let selectMode = $state(false);
@@ -257,4 +274,5 @@
   onClose={closeLightbox}
   onSelect={openCharacter}
   onDownload={onDownload}
+  {notice}
 />
