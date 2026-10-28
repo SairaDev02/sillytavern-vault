@@ -265,6 +265,12 @@ describe('App', () => {
     await waitFor(() => expect(dialog()?.open).toBe(true));
   }
 
+  /** The image the open lightbox is displaying. */
+  const lightboxImage = () => dialog()?.querySelector<HTMLImageElement>('img');
+
+  /** jsdom does not decode images, so a test reports the failure itself. */
+  const failImage = (image: HTMLImageElement) => image.dispatchEvent(new Event('error'));
+
   async function enterSelectMode() {
     buttonWithText('Select')!.click();
     await settle();
@@ -362,6 +368,62 @@ describe('App', () => {
 
     expect(figures()).toHaveLength(0);
     expect(dialog()).toBeNull();
+  });
+
+  it('shows an unavailable lightbox image as polite status without closing the dialog', async () => {
+    await seedDatabase([makeCharacter(1, { name: 'Aria', width: 800, height: 600 })]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    await openLightbox();
+
+    const download = buttonWithText('Download')!;
+    download.focus();
+
+    failImage(lightboxImage()!);
+    await settle();
+
+    // The failure is visible in the dialog and reported as polite status.
+    expect(dialog()?.open).toBe(true);
+    expect(dialog()!.textContent).toContain('Image unavailable');
+    const status = dialog()!.querySelector('[role="status"]');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Image unavailable');
+    // It neither steals focus nor removes the Character's actions.
+    expectFocusOn(download, 'the lightbox Download button');
+    for (const label of ['Download', 'Edit', 'Delete']) {
+      expect(buttonWithText(label), `${label} button`).toBeDefined();
+    }
+  });
+
+  it('does not carry a lightbox image failure to the next Character', async () => {
+    // Both Characters share one image source, so only the Character identity can
+    // decide that the next view starts without the previous failure.
+    await seedDatabase([
+      makeCharacter(1, { name: 'Aria' }),
+      makeCharacter(2, { name: 'Bram' }),
+    ]);
+
+    start();
+    await waitFor(() => expect(figures()).toHaveLength(2));
+    await openLightbox();
+
+    // Newest first, so the lightbox opens on Bram and moves on to Aria.
+    expect(dialog()!.querySelector('h2')?.textContent?.trim()).toBe('Bram');
+    failImage(lightboxImage()!);
+    await settle();
+    expect(dialog()!.textContent).toContain('Image unavailable');
+
+    const next = [...dialog()!.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Next character'
+    )!;
+    next.click();
+    await settle();
+
+    expect(dialog()!.querySelector('h2')?.textContent?.trim()).toBe('Aria');
+    expect(dialog()!.textContent).not.toContain('Image unavailable');
+    expect(dialog()!.querySelector('[role="status"]')?.textContent?.trim()).toBe('');
+    expect(dialog()?.open).toBe(true);
   });
 
   it('distinguishes loading from an empty ready library', async () => {

@@ -1,6 +1,19 @@
 <script lang="ts">
   import type { Character } from '../types';
   import { downloadCharacterImage } from '../download';
+  import {
+    IMAGE_UNAVAILABLE_TEXT,
+    imageFrameAspectRatio,
+    imageFrameSize,
+    isImageUnavailable,
+    isUsableImageSize,
+  } from '../image-frame';
+
+  /** Which displayed image could not be shown: its Character and its source. */
+  interface ImageFailure {
+    characterId: string;
+    source: string;
+  }
 
   let { character, characters, onEdit, onDelete, onClose, onSelect }: {
     character: Character | null;
@@ -14,6 +27,42 @@
   let dialogEl = $state<HTMLDialogElement | undefined>(undefined);
   let triggerButton: HTMLElement | null = null;
   let toreDown = false;
+
+  // A display failure belongs to the image it happened on: the Character shown
+  // and the source string itself. Recording both means navigating to another
+  // Character, or replacing a source under the same Character id, starts the
+  // next view without the failure.
+  let failed: ImageFailure | null = $state(null);
+
+  /** Whether the recorded failure describes the image the dialog shows now. */
+  function describesDisplayedImage(
+    failure: ImageFailure | null,
+    shown: Character | null
+  ): boolean {
+    return (
+      failure !== null &&
+      shown !== null &&
+      failure.characterId === shown.id &&
+      isImageUnavailable(shown.image, failure.source)
+    );
+  }
+
+  let imageUnavailable = $derived(describesDisplayedImage(failed, character));
+
+  // The displayed image as one identity, so each source gets its own element.
+  let imageKey = $derived(`${character?.id ?? ''}\u0000${character?.image ?? ''}`);
+
+  let hasStoredSize = $derived(isUsableImageSize(character));
+  let frame = $derived(imageFrameSize(character));
+  // The frame carries the reserved shape and takes its size from the viewport,
+  // never from the image, so loading or failing cannot reshape it. The bounds
+  // keep it inside the dialog's width and a 60vh height, so a tall stored image
+  // does not push the actions off screen; the 8rem leaves room for the dialog's
+  // padding and the previous/next buttons.
+  let frameStyle = $derived(
+    `aspect-ratio: ${imageFrameAspectRatio(character)}; ` +
+      `width: min(calc(80vw - 8rem), calc(60vh * ${frame.width} / ${frame.height}))`
+  );
 
   let index = $derived(character ? characters.findIndex((c) => c.id === character.id) : -1);
   let hasPrevious = $derived(index > 0);
@@ -62,6 +111,18 @@
       showNext();
     }
     // Escape is left to the dialog, which closes and fires `close`.
+  }
+
+  /**
+   * Record the image the failing element shows, exactly as that element still
+   * holds it. A late event from an element whose source was replaced names a
+   * different source, so it cannot describe what is on screen now.
+   */
+  function handleImageError(event: Event) {
+    const shown = (event.currentTarget as HTMLImageElement | null)?.getAttribute('src');
+    if (!character || !shown) return;
+    if (!isImageUnavailable(character.image, shown)) return;
+    failed = { characterId: character.id, source: shown };
   }
 
   function handleDownload() {
@@ -133,13 +194,38 @@
         </button>
 
         <div class="flex-1 overflow-auto">
-          <img
-            src={character.image}
-            alt={character.name}
-            width={character.width}
-            height={character.height}
-            class="mx-auto max-h-[60vh] rounded-lg object-contain"
-          />
+          <span
+            class="relative mx-auto block overflow-hidden rounded-lg bg-zinc-800"
+            style={frameStyle}
+          >
+            {#if !imageUnavailable}
+              <!-- Keying on the displayed image gives each source its own element,
+                   so a late error still names the source it was shown for. -->
+              {#key imageKey}
+                <img
+                  src={character.image}
+                  alt={character.name}
+                  width={hasStoredSize ? frame.width : undefined}
+                  height={hasStoredSize ? frame.height : undefined}
+                  onerror={handleImageError}
+                  class="block h-full w-full object-contain"
+                />
+              {/key}
+            {/if}
+            <!-- Unlike a card, the lightbox shows one image at a time, so the
+                 failure is announced here as polite status. It is not a focus
+                 target and does not touch the dialog's open state. -->
+            <span
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              class={imageUnavailable
+                ? 'absolute inset-0 flex items-center justify-center p-4 text-center text-sm font-medium text-zinc-300'
+                : 'sr-only'}
+            >
+              {imageUnavailable ? IMAGE_UNAVAILABLE_TEXT : ''}
+            </span>
+          </span>
         </div>
 
         <button
