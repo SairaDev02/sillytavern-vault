@@ -12,6 +12,14 @@ The five canonical triage roles use the default label strings. See `docs/agents/
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Grilling
+
+When asked to grill a plan, decision, or issue, use the available grilling skill and:
+
+- Investigate facts in the code, documentation, and issue tracker. Distinguish current behavior from proposed changes; ask the user for decisions, not facts you can check.
+- Ask all independent, unblocked decisions in numbered batches, with a reasoned recommendation for each. Defer dependent questions until their prerequisites are settled.
+- When no decisions remain, summarize the agreed choices and obtain the user's confirmation. Agreement on requirements does not authorize implementation, ticket publication, issue closure, or repository settings changes; proceed only when the user has authorized the action.
+
 ### Ticket decomposition
 
 When `/to-tickets` publishes tickets from a spec or parent issue, link each ticket to that parent as a **native GitHub sub-issue** in the same run; a `## Parent` line in the body is not the link. Add it with `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`, the child's database id from `gh api repos/<owner>/<repo>/issues/<n> --jq .id`, then read the parent's `.../sub_issues` list to confirm.

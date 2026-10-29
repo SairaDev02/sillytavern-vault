@@ -12,7 +12,7 @@ The app has no backend. It has no runtime dependencies. All entries in `devDepen
 
 ## 2. Quick Start
 
-Requirements: Node.js 20 or newer and npm. Version 22 LTS is recommended, and `.nvmrc` records it. Node.js is a build-time requirement only. The built app is static files.
+Requirements: Node.js and npm. See the [README requirements](../README.md#requirements) for the CI versions and locked dependency engine constraints. Node.js runs the local tools and the launcher. The built app is static files.
 
 | Command | Action |
 |---|---|
@@ -28,7 +28,7 @@ Requirements: Node.js 20 or newer and npm. Version 22 LTS is recommended, and `.
 | `npm run test:watch` | Run the tests in watch mode. |
 | `npm run test:ui` | Open the Vitest user interface. |
 
-Run `npm run check`, `npm test`, and `npm run build` before you push. Continuous integration runs the same three commands on every push to `main` and every pull request, on Node 22 and Node 24. See `.github/workflows/ci.yml`. The repository has no linter and no formatter, so these commands are the gate.
+Run `npm run check`, `npm test`, and `npm run build` before you push. Continuous integration runs the same three commands on every push to `main` and every pull request, on Node 22 and Node 24. See `.github/workflows/ci.yml`. The repository has no linter and no formatter. See `CONTRIBUTING.md` for the merge expectations.
 
 The launcher in `scripts/start.mjs` takes `--dev`, `--port <n>`, `--host`, `--force`, `--no-build`, `--no-open`, and `--help`. On Windows, `start.cmd` does the same from a double click.
 
@@ -673,9 +673,9 @@ This is a manual smoke check, not part of `npm test`. It does not prove the foll
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
 
-`npm run build` writes `dist/index.html`, `dist/assets/*.css`, and `dist/assets/*.js`. The build does not run the type check. Run `npm run check` first, or run `npm start`, which builds on demand and then serves the result.
+`npm run build` writes `dist/index.html`, `dist/assets/*.css`, and `dist/assets/*.js`. The build does not run the type check. Run `npm run check` separately. `npm start` builds on demand and then serves the result; it does not run the type check.
 
-Continuous integration runs the check, the tests, and the build on Node 22 and 24 for every push and pull request. It also uploads the bundle as a build artifact. CodeQL and dependency review run on pull requests.
+Continuous integration runs the check, the tests, and the build on Node 22 and 24 for pushes to `main`, pull requests, and manual dispatch. It also uploads the bundle as a build artifact. CodeQL runs on pushes to `main`, pull requests to `main`, a weekly schedule, and manual dispatch. Dependency review runs on pull requests.
 
 ## 15. Extension Recipes
 

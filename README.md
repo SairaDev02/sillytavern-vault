@@ -9,7 +9,7 @@ your cards never leave your machine.
 
 [![CI](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#requirements)
+[![CI Node](https://img.shields.io/badge/CI%20Node-22%20%7C%2024-brightgreen.svg)](#requirements)
 
 ## Features
 
@@ -33,8 +33,12 @@ your cards never leave your machine.
 
 ## Requirements
 
-- **Node.js 20 or newer** (22 LTS recommended) and npm. Node is a build-time
-  requirement only; the deployed app is static files.
+- **Node.js and npm.** CI targets Node 22.x and 24.x; `.nvmrc` selects 22.
+  `package.json` declares Node `>=20`, but locked test dependencies declare
+  stricter engine requirements: at least 22.22.2 within Node 22 and 24.15.0
+  within Node 24. CI does not test those exact floors. By default, npm may warn
+  rather than reject an unsupported version. Node runs the local tools and the
+  included launcher; the built app is static files.
 - A modern browser with IndexedDB — Chrome, Edge, Firefox, or Safari.
 
 ## Quick start

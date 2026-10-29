@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.test.ts'],
+    // .mjs tests cover the plain-JS scripts, which tsconfig does not type-check.
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.mjs'],
   },
 });
