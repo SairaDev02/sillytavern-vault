@@ -10,7 +10,7 @@
  * it. The script reads the triggering run's job and step conclusions and then
  * publishes the required check on the pull request head commit.
  *
- * The core (`evaluateRun`, `loadExpectedContexts`) is pure. The CLI reads
+ * The core (`evaluateRun`, `loadWorkflowExpectations`) is pure. The CLI reads
  * `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_EVENT_PATH`, and optionally
  * `REQUIRED_CONTEXTS_FILE` and `DRY_RUN`.
  *
@@ -57,16 +57,25 @@ const tableConclusion = (value) => formatConclusion(value);
  * Decide the gate result from a completed workflow run.
  *
  * Every rule fails closed: an unexpected shape, a missing conclusion, a skipped
- * job, or a failed step inside a job that reports success all block the merge.
+ * job, a declared step that is missing or did not conclude `success`, or a
+ * failed step inside a job that reports success all block the merge.
  *
  * @returns {{ ok: boolean, conclusion: 'success'|'failure', checkName: string,
  *   title: string, summary: string, failures: string[] }}
  */
-export function evaluateRun({ workflowName, shortSha, run, jobs, expectedJobNames }) {
+export function evaluateRun({
+  workflowName,
+  shortSha,
+  run,
+  jobs,
+  expectedJobNames,
+  requiredStepNames,
+}) {
   const checkName = `gate (${workflowName})`;
   const failures = [];
   const jobList = Array.isArray(jobs) ? jobs : [];
   const expected = Array.isArray(expectedJobNames) ? expectedJobNames : [];
+  const requiredSteps = Array.isArray(requiredStepNames) ? requiredStepNames : [];
 
   const runConclusion = run?.conclusion ?? null;
   if (runConclusion !== 'success') {
@@ -76,6 +85,11 @@ export function evaluateRun({ workflowName, shortSha, run, jobs, expectedJobName
   }
   if (expected.length === 0) {
     failures.push('no expected job names were supplied, so the gate cannot fail closed');
+  }
+  if (requiredSteps.length === 0) {
+    // Without a declared step, a job that skips its test or analysis step still
+    // concludes `success`, and the gate would accept it.
+    failures.push('no required step names were supplied, so the gate cannot fail closed');
   }
 
   const rows = [];
@@ -103,9 +117,43 @@ export function evaluateRun({ workflowName, shortSha, run, jobs, expectedJobName
       }
     }
 
-    // A `continue-on-error` step can leave the job conclusion at "success".
+    // A job can keep its `success` conclusion while the step that carries the
+    // required work is skipped, renamed, or deleted, and a pull request owns its
+    // workflow file. Only the declared steps prove the work ran.
     for (const match of matches) {
-      for (const step of Array.isArray(match?.steps) ? match.steps : []) {
+      const steps = Array.isArray(match?.steps) ? match.steps : [];
+
+      for (const required of requiredSteps) {
+        const found = steps.filter((candidate) => candidate?.name === required);
+        if (found.length === 0) {
+          failures.push(
+            `the required step ${describeConclusion(required)} is missing from the ` +
+              `expected job "${name}"`,
+          );
+          continue;
+        }
+        if (found.length > 1) {
+          failures.push(
+            `the required step ${describeConclusion(required)} appears more than once ` +
+              `(${found.length} times) in the expected job "${name}"; the gate needs exactly one`,
+          );
+        }
+        for (const foundStep of found) {
+          if (foundStep?.conclusion !== 'success') {
+            failures.push(
+              `the required step ${describeConclusion(required)} in the expected job ` +
+                `"${name}" concluded ${describeConclusion(foundStep?.conclusion)}; ` +
+                'the gate requires "success"',
+            );
+          }
+        }
+      }
+
+      // An undeclared step can still fail while the job conclusion stays
+      // `success`, for example a `continue-on-error` step. A skipped undeclared
+      // step is allowed: the conditional artifact upload is one.
+      for (const step of steps) {
+        if (requiredSteps.includes(step?.name)) continue;
         if (BLOCKING_STEP_CONCLUSIONS.has(step?.conclusion)) {
           failures.push(
             `the expected job "${name}" has the step ${describeConclusion(step?.name)} ` +
@@ -126,6 +174,8 @@ export function evaluateRun({ workflowName, shortSha, run, jobs, expectedJobName
     `**Workflow:** ${workflowName ? `\`${workflowName}\`` : '(unknown)'}` +
       `${shortSha ? ` at \`${shortSha}\`` : ''}`,
     `**Run conclusion:** ${describeConclusion(runConclusion)} (required: \`success\`)`,
+    `**Required steps:** ${requiredSteps.map((step) => `\`${step}\``).join(', ')} ` +
+      '(each must conclude `success` in every listed job)',
     '',
     '| Expected job | Conclusion |',
     '| --- | --- |',
@@ -153,42 +203,66 @@ export function evaluateRun({ workflowName, shortSha, run, jobs, expectedJobName
 }
 
 /**
- * Read the expected job display names for one workflow.
+ * Validate one list of display names inside a workflow entry.
  *
- * Throws instead of returning an empty list: "no expectations" must never look
+ * Throws instead of returning an empty list: "nothing to check" must never look
  * like "everything passed".
  */
-export function loadExpectedContexts(parsedJson, workflowName) {
+function readNameList(value, workflowName, key) {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `The required contexts entry for the workflow "${workflowName}" has no "${key}" list.`,
+    );
+  }
+  if (value.length === 0) {
+    throw new Error(
+      `The "${key}" list for the workflow "${workflowName}" is empty. ` +
+        'An empty list cannot fail closed.',
+    );
+  }
+  for (const name of value) {
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw new Error(
+        `The "${key}" list for the workflow "${workflowName}" ` +
+          'contains a value that is not a name.',
+      );
+    }
+  }
+  return value;
+}
+
+/**
+ * Read the expected job display names and the required step names for one
+ * workflow.
+ *
+ * The required steps are the work whose execution the job conclusion cannot
+ * prove: a pull request can give `Run the test suite` an `if:` that skips it,
+ * and the job still concludes `success`.
+ *
+ * @returns {{ jobNames: string[], requiredSteps: string[] }}
+ */
+export function loadWorkflowExpectations(parsedJson, workflowName) {
   if (parsedJson === null || typeof parsedJson !== 'object' || Array.isArray(parsedJson)) {
     throw new Error('The required contexts file must contain a JSON object.');
   }
   if (!Object.hasOwn(parsedJson, workflowName)) {
     throw new Error(
       `The required contexts file has no entry for the workflow "${workflowName}". ` +
-        'Add one, with the job display names that must succeed, or the gate cannot fail closed.',
+        'Add one, with the job display names and the required step names, or the gate ' +
+        'cannot fail closed.',
     );
   }
-  const names = parsedJson[workflowName];
-  if (!Array.isArray(names)) {
+  const entry = parsedJson[workflowName];
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
     throw new Error(
-      `The required contexts entry for the workflow "${workflowName}" is not a list of job names.`,
+      `The required contexts entry for the workflow "${workflowName}" is not an object ` +
+        'with "jobs" and "requiredSteps".',
     );
   }
-  if (names.length === 0) {
-    throw new Error(
-      `The required contexts entry for the workflow "${workflowName}" is empty. ` +
-        'An empty list cannot fail closed.',
-    );
-  }
-  for (const name of names) {
-    if (typeof name !== 'string' || name.trim() === '') {
-      throw new Error(
-        `The required contexts entry for the workflow "${workflowName}" ` +
-          'contains a value that is not a job name.',
-      );
-    }
-  }
-  return names;
+  return {
+    jobNames: readNameList(entry.jobs, workflowName, 'jobs'),
+    requiredSteps: readNameList(entry.requiredSteps, workflowName, 'requiredSteps'),
+  };
 }
 
 // ------------------------------------------------------------------- cli
@@ -272,7 +346,7 @@ async function readEvent(eventPath) {
   }
 }
 
-async function readRequiredContexts(contextsPath, workflowName) {
+async function readWorkflowExpectations(contextsPath, workflowName) {
   let text;
   try {
     text = await readFile(contextsPath, 'utf8');
@@ -287,7 +361,7 @@ async function readRequiredContexts(contextsPath, workflowName) {
   } catch {
     throw new Error(`The required contexts file at "${contextsPath}" is not JSON.`);
   }
-  return loadExpectedContexts(parsed, workflowName);
+  return loadWorkflowExpectations(parsed, workflowName);
 }
 
 async function fetchRunJobs(runId) {
@@ -430,10 +504,13 @@ async function main() {
   }
   log(`The commit belongs to pull request #${pullNumber}.`);
 
-  const expectedJobNames = await readRequiredContexts(contextsPath, workflowName);
+  const { jobNames, requiredSteps } = await readWorkflowExpectations(
+    contextsPath,
+    workflowName,
+  );
   log(
-    `Loaded ${expectedJobNames.length} expected job name(s) for "${workflowName}" ` +
-      `from ${contextsPath}.`,
+    `Loaded ${jobNames.length} expected job name(s) and ${requiredSteps.length} required ` +
+      `step(s) for "${workflowName}" from ${contextsPath}.`,
   );
 
   const jobs = await fetchRunJobs(run.id);
@@ -442,7 +519,8 @@ async function main() {
     shortSha: state.headSha.slice(0, 7),
     run,
     jobs,
-    expectedJobNames,
+    expectedJobNames: jobNames,
+    requiredStepNames: requiredSteps,
   });
 
   log(result.summary);
