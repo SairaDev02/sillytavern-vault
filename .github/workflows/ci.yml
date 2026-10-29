@@ -14,27 +14,39 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The six supported Node/npm combinations are separate jobs rather than matrix
+# legs. A required check that never runs reports success to GitHub, so each
+# combination needs its own job that is required by name and cannot be skipped
+# by a matrix change. The repetition is deliberate.
 jobs:
-  verify:
-    name: verify (node ${{ matrix.node }})
+  runtime-node-24-15-0-npm-12:
+    name: runtime (node 24.15.0, npm latest 12)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.x', '24.x']
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Node.js ${{ matrix.node }}
+      - name: Set up Node.js 24.15.0
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24.15.0
           cache: npm
 
+      # Node 24.15.0 bundles npm 11, so CI selects npm 12 explicitly instead of
+      # trusting the Node release to carry the supported package manager.
+      - name: Select the latest npm 12
+        run: npm install -g "npm@^12"
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      # Engine enforcement belongs to the CI install only; a local install must
+      # not reject an unsupported version.
       - name: Install dependencies
         run: npm ci
+        env:
+          npm_config_engine_strict: "true"
 
       - name: Type-check
         run: npm run check
@@ -45,10 +57,183 @@ jobs:
       - name: Build the production bundle
         run: npm run build
 
+      # The lowest supported Node floor with the latest npm 12 produces the
+      # artifact, so the job that produced it before Node 22 was removed from
+      # the workflow still has a successor.
       - name: Upload the production bundle
-        if: matrix.node == '22.x'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
           retention-days: 7
+
+  runtime-node-24-latest-npm-12:
+    name: runtime (node 24.x latest, npm latest 12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Select the latest npm 12
+        run: npm install -g "npm@^12"
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_engine_strict: "true"
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production bundle
+        run: npm run build
+
+  runtime-node-26-0-0-npm-12:
+    name: runtime (node 26.0.0, npm latest 12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 26.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.0.0
+          cache: npm
+
+      # Node 26.0.0 bundles npm 11, so CI selects npm 12 explicitly.
+      - name: Select the latest npm 12
+        run: npm install -g "npm@^12"
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_engine_strict: "true"
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production bundle
+        run: npm run build
+
+  runtime-node-26-latest-npm-12:
+    name: runtime (node 26.x latest, npm latest 12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 26.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.x
+          cache: npm
+
+      - name: Select the latest npm 12
+        run: npm install -g "npm@^12"
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_engine_strict: "true"
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production bundle
+        run: npm run build
+
+  runtime-node-24-15-0-npm-12-0-0:
+    name: runtime (node 24.15.0, npm 12.0.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+          cache: npm
+
+      - name: Select npm 12.0.0
+        run: npm install -g npm@12.0.0
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_engine_strict: "true"
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production bundle
+        run: npm run build
+
+  runtime-node-26-0-0-npm-12-0-0:
+    name: runtime (node 26.0.0, npm 12.0.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 26.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.0.0
+          cache: npm
+
+      - name: Select npm 12.0.0
+        run: npm install -g npm@12.0.0
+
+      - name: Record the resolved Node.js and npm versions
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_engine_strict: "true"
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production bundle
+        run: npm run build
