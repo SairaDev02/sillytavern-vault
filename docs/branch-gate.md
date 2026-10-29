@@ -36,14 +36,14 @@ rule back. Do not change a rule by hand without a matching payload change.
 
 | Context | Producing workflow | What it proves |
 | --- | --- | --- |
-| `CI / runtime (node 24.15.0, npm latest 12)` | `CI` | The locked install, type check, tests, and build pass on the Node 24 floor with the latest npm 12. |
-| `CI / runtime (node 24.x latest, npm latest 12)` | `CI` | The same sequence passes on the latest Node 24 release with the latest npm 12. |
-| `CI / runtime (node 26.0.0, npm latest 12)` | `CI` | The same sequence passes on the Node 26 floor with the latest npm 12. |
-| `CI / runtime (node 26.x latest, npm latest 12)` | `CI` | The same sequence passes on the latest Node 26 release with the latest npm 12. |
-| `CI / runtime (node 24.15.0, npm 12.0.0)` | `CI` | The same sequence passes on the Node 24 floor with the npm 12 floor. |
-| `CI / runtime (node 26.0.0, npm 12.0.0)` | `CI` | The same sequence passes on the Node 26 floor with the npm 12 floor. |
-| `CodeQL / analyze javascript-typescript` | `CodeQL` | The analysis job completed for the pull request commit. It does not prove a clean scan. Section 4 covers findings. |
-| `Dependency review / review dependency changes` | `Dependency review` | The dependency review completed for the pull request commit. Section 4 covers the advisory threshold. |
+| `runtime (node 24.15.0, npm latest 12)` | `CI` | The locked install, type check, tests, and build pass on the Node 24 floor with the latest npm 12. |
+| `runtime (node 24.x latest, npm latest 12)` | `CI` | The same sequence passes on the latest Node 24 release with the latest npm 12. |
+| `runtime (node 26.0.0, npm latest 12)` | `CI` | The same sequence passes on the Node 26 floor with the latest npm 12. |
+| `runtime (node 26.x latest, npm latest 12)` | `CI` | The same sequence passes on the latest Node 26 release with the latest npm 12. |
+| `runtime (node 24.15.0, npm 12.0.0)` | `CI` | The same sequence passes on the Node 24 floor with the npm 12 floor. |
+| `runtime (node 26.0.0, npm 12.0.0)` | `CI` | The same sequence passes on the Node 26 floor with the npm 12 floor. |
+| `analyze javascript-typescript` | `CodeQL` | The analysis job completed for the pull request commit. It does not prove a clean scan. Section 4 covers findings. |
+| `review dependency changes` | `Dependency review` | The dependency review completed for the pull request commit. Section 4 covers the advisory threshold. |
 | `gate (CI)` | `Gate` | Every job named in `.github/required-contexts.json` for `CI` concluded `success` on the pull request head commit. |
 | `gate (CodeQL)` | `Gate` | The `CodeQL` job concluded `success` on the pull request head commit. |
 | `gate (Dependency review)` | `Gate` | The `Dependency review` job concluded `success` on the pull request head commit. |
@@ -51,6 +51,12 @@ rule back. Do not change a rule by hand without a matching payload change.
 Each context must come from the GitHub Actions app. The payload pins that app
 by `integration_id` 15368. A check from a different app does not satisfy the
 rule.
+
+Use the check run name exactly. Do not add the `workflow / job` prefix that the
+pull request page shows. GitHub matches the `name` of the check run, and the
+composed form never matches. A required context in the composed form therefore
+blocks every pull request rather than gating the job that it names. Evidence
+row 1 of section 8 records the readback that established this rule.
 
 `.github/required-contexts.json` is the single source for the job names that
 each gate check requires. Do not copy those names into another file.
@@ -251,8 +257,9 @@ merge. Do the steps in this order.
    workflows complete on it. Read the real job names and the real `gate (...)`
    check names from that pull request.
 3. Compare the names that you read with `.github/required-contexts.json` and
-   with the eleven contexts in `main-merge-gate.json`. Correct every difference
-   in a new pull request. Do not guess a name.
+   with the eleven contexts in `main-merge-gate.json`. Compare the check run
+   `name` values, not the `workflow / job` form that the page shows. Correct
+   every difference in a new pull request. Do not guess a name.
 4. Apply `main-protection`, then `main-merge-gate`, from the payload files. A
    human authorizes this step. Record the ruleset readback in the evidence log.
 5. Read the applied rules back. Confirm the eleven contexts, the strict policy,
@@ -283,8 +290,46 @@ evidence class to show what the row proves:
 - **readback only**: the configuration, without an observed pull request
   result.
 
-The log is empty now. An empty log means that the mechanism is not proven on a
-real pull request.
+A row records one observation. The rollout of 2026-10-29 appears below.
 
 | Date | Target (repo@sha / PR #) | Context or rule | Expected | Observed | Evidence class (live PR / disposable equivalent / readback only) |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-29 | `sillytavern-vault@88552f0`, PR #47 | The eleven contexts, read from the commit | Eleven names, all from app 15368 | Eleven names; the six runtime jobs and the three `gate (...)` checks from app 15368, plus `analyze javascript-typescript` and `review dependency changes` | readback only |
+| 2026-10-29 | PR #47 | All eleven contexts on one commit, base up to date | Merge permitted | `CLEAN` / `MERGEABLE`; six jobs resolved v24.15.0 with npm 12.2.1, v24.22.1 with 12.2.1, v26.0.0 with 12.2.1, v26.12.1 with 12.2.1, v24.15.0 with 12.0.0, v26.0.0 with 12.0.0 | live PR |
+| 2026-10-29 | PR #47, ruleset `main-merge-gate` id 26121638 | An extra context that never reports | Merge blocked | `BLOCKED` with every real check green | live ruleset |
+| 2026-10-29 | PR #48 `d291d73` | A required runtime job skipped by `if: ${{ false }}` | Blocked, and the leaf check must not satisfy the gate by itself | Leaf `skipped`, run conclusion `success`, `gate (CI)` failure naming the skipped job, merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #48 `d291d73`, `gate (CI)` removed from the ruleset | The same skipped job with no gate check required | Merge permitted, which is the defect that the gate exists to close | `UNSTABLE`: merge allowed, with only the non-required `gate (CI)` failing | live ruleset |
+| 2026-10-29 | PR #48 `f3d79a3` | A failing step inside a job with `continue-on-error: true` | Blocked | Leaf `failure`; `gate (CI)` failure names the job and the failing step | live PR |
+| 2026-10-29 | PR #48 `403ec22` | A required job deleted from the workflow | Blocked | Context absent; `gate (CI)` reports the job as missing from the run; merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #48 `db57b91` | A required job hung past the observation window, then the run cancelled | Blocked, first pending then cancelled | Pending: leaf `pending` and no `gate (CI)` check at all, merge `BLOCKED`. After cancel: run, job, and step all `cancelled`, `gate (CI)` failure, merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #48 `9b9e2af` | A new high dependency advisory (`lodash` 4.17.20) | Dependency review fails and the merge is blocked | `review dependency changes` failure and `gate (Dependency review)` failure; merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #48 `9b9e2af` | CodeQL findings | Blocked by the finding, not by the analysis | `analyze javascript-typescript` success; `CodeQL` findings check failure, 2 critical and 1 high; merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #48 `59acee1` | One medium security finding only | Advisory, merge permitted | `CodeQL` findings check success, 1 medium; merge `CLEAN` | live PR |
+| 2026-10-29 | PR #50 `dfd6cc5` | One critical finding on a current base | Blocked | `CodeQL` findings check failure; merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #50, alert 9 | Authorised dismissal with a written reason on the alert | Record the real effect on mergeability | `BLOCKED` to `CLEAN` within about 30 seconds; the `CodeQL` check run on the head commit stayed `failure`, so the rule evaluates alert state, not the check run | live PR |
+| 2026-10-29 | PR #49 `0dc7033` | Out-of-date base | Blocked | `BEHIND`; a plain merge was refused with "the head branch is not up to date with the base branch" | live PR |
+| 2026-10-29 | PR #49, reason on the PR | Administrator pull-request-only bypass | Merge permitted, and separate from normal blocking | Merged with administrator privileges while `BEHIND`; authorisation and reason recorded on the PR | live PR |
+| 2026-10-29 | PR #51 `81cb220` to `f4d97e3` | Results for an older commit | A new commit is not authorised by the old results | `CLEAN` on `81cb220`; `BLOCKED` on `f4d97e3` while its own checks ran | live PR |
+| 2026-10-29 | `main-gate-probe`, disposable, `protected-test` | `non_fast_forward` | Force push rejected; an ordinary push allowed | Ordinary push succeeded; `git push --force` rejected with "push declined due to repository rule violations"; branch unchanged | disposable equivalent |
+| 2026-10-29 | `main-gate-probe`, disposable, `protected-test` | `deletion` | Branch deletion rejected | `git push origin --delete protected-test` rejected with the same message; the branch still exists | disposable equivalent |
+| 2026-10-29 | `sillytavern-vault@main` | CodeQL findings in the verifier itself | Advisory at the agreed threshold | Two `js/file-access-to-http` alerts, security severity `medium`, state `open` on `scripts/ci-gate.mjs`; they do not block, and they are not suppressed | readback only |
+| 2026-10-29 | `sillytavern-vault@main` | Rulesets `main-protection` id 26121627 and `main-merge-gate` id 26121638 | The payloads from this repository | `main-protection`: `deletion`, `non_fast_forward`, no bypass actor, `current_user_can_bypass` `never`. `main-merge-gate`: `pull_request`, `required_status_checks` with eleven contexts, `code_scanning` CodeQL `high_or_higher` and `none`, bypass `RepositoryRole` 5 `pull_request` | readback only |
+
+### 8.1 What the log does not prove
+
+These cases are unverified as of 2026-10-29. Do not treat them as passing.
+
+- **A fork pull request.** The repository owner cannot fork the repository, and
+  no second identity was available. The `workflow_run` behaviour for a fork, and
+  the GitHub approval for a fork workflow, are unproven here.
+- **A Dependabot pull request.** No Dependabot pull request was produced in this
+  window. Its restricted permissions, and the effect of the labels that
+  `.github/dependabot.yml` names but the repository does not define, are
+  unproven here.
+- **A `neutral` job conclusion.** A GitHub Actions job cannot conclude
+  `neutral`. `continue-on-error` was observed instead, and it produced a
+  `failure` job conclusion (section 8 above). The verifier also treats
+  `neutral` as `failure`, and a unit test covers that value.
+- **A destructive probe against the real `main`.** The rules were proven on a
+  disposable repository. A force push to, or a deletion of, the real `main` was
+  not attempted by design.

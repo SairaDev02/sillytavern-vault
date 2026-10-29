@@ -103,27 +103,22 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 
 ### The `main` gate
 
-- Every change reaches `main` through a pull request.
-- No second reviewer is required by default, and the existing merge methods stay
-  available.
-- Required checks must be up to date with `main` and must belong to the current
-  commit of the pull request.
-- The six runtime results, the CodeQL analysis, the dependency review, and the
-  gate checks must all complete successfully. A skipped, failed, cancelled,
-  pending, or missing result does not merge.
-- A high or critical CodeQL security finding blocks the merge. A newly introduced
-  high or critical dependency advisory blocks the merge. Lower-severity security
-  findings and non-security findings are advisory.
-- A dependency-review false positive has no routine exception. Fix it or wait.
-- An administrator can bypass the gate on a pull request only. A human authorizes
-  each bypass, and the reason is recorded on the pull request.
-- Force pushes to `main` and deletion of `main` are blocked, and the bypass does
-  not permit either.
-- An agent needs human approval before it merges a change to required-check
-  definitions or thresholds.
+Every change reaches `main` through a pull request. The six runtime results, the
+CodeQL analysis, the dependency review, and the gate checks must all complete
+successfully on the current commit, and the head must be up to date with `main`.
+A skipped, failed, cancelled, pending, or stale result does not merge.
 
-`docs/branch-gate.md` is the authoritative description of this gate, including the
-current thresholds and the readback commands. Do not restate its detail here.
+No second reviewer is required by default, and the existing merge methods stay
+available. An administrator can bypass the gate on a pull request only, after a
+human authorizes that bypass, and the reason is recorded on the pull request.
+Force pushes to `main` and deletion of `main` are blocked.
+
+`docs/branch-gate.md` is the authoritative description of the gate: the eleven
+required contexts, the findings thresholds, the exceptional access rules, and the
+verification evidence. Read it before you change anything in `.github/`.
+
+An agent needs human approval before it merges a change to required-check
+definitions or thresholds.
 
 ### Documentation style
 
