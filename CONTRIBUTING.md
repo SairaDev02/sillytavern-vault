@@ -18,8 +18,10 @@ you spend time on the implementation.
 
 ## Requirements
 
-- Node.js and npm. See the [README requirements](README.md#requirements) for
-  CI versions and locked dependency engine constraints.
+- Node.js `^24.15.0 || ^26.0.0` and npm `^12.0.0`. Node 26 is preferred for
+  local development, and `.nvmrc` selects it. CI tests six Node and npm
+  combinations and enforces the dependency engine ranges during the install. See
+  the [README requirements](README.md#requirements) for the full statement.
 
 ## Setup
 
@@ -45,6 +47,11 @@ npm run build   # production build
 If you changed behavior, add or update tests in `tests/`. If you changed the
 command line, the setup steps, or the architecture, update the README and
 `docs/WIKI.md` in the same pull request.
+
+These three commands are the local gate, and they are the only commands CI runs
+for application verification. CI runs them on six Node and npm combinations, and
+it enforces the dependency engine ranges during the install. A locked
+`package-lock.json` and an npm 12 install are therefore part of the gate.
 
 ## Project conventions
 
@@ -91,9 +98,32 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
   verified it.
 - Link the issue the pull request closes, for example `Closes #12`.
 - Keep the history clean. Squash fixup commits before you ask for review.
-- Expect CI to run `npm run check`, `npm test`, and `npm run build` on Node 22
-  and 24. Do not merge a red CI run. As of 2026-10-29, GitHub has no branch
-  protection or repository rulesets enforcing this expectation on `main`.
+- Expect CI to run `npm run check`, `npm test`, and `npm run build`. Do not merge
+  a red CI run.
+
+### The `main` gate
+
+- Every change reaches `main` through a pull request.
+- No second reviewer is required by default, and the existing merge methods stay
+  available.
+- Required checks must be up to date with `main` and must belong to the current
+  commit of the pull request.
+- The six runtime results, the CodeQL analysis, the dependency review, and the
+  gate checks must all complete successfully. A skipped, failed, cancelled,
+  pending, or missing result does not merge.
+- A high or critical CodeQL security finding blocks the merge. A newly introduced
+  high or critical dependency advisory blocks the merge. Lower-severity security
+  findings and non-security findings are advisory.
+- A dependency-review false positive has no routine exception. Fix it or wait.
+- An administrator can bypass the gate on a pull request only. A human authorizes
+  each bypass, and the reason is recorded on the pull request.
+- Force pushes to `main` and deletion of `main` are blocked, and the bypass does
+  not permit either.
+- An agent needs human approval before it merges a change to required-check
+  definitions or thresholds.
+
+`docs/branch-gate.md` is the authoritative description of this gate, including the
+current thresholds and the readback commands. Do not restate its detail here.
 
 ### Documentation style
 

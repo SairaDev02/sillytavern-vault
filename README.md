@@ -9,7 +9,7 @@ your cards never leave your machine.
 
 [![CI](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![CI Node](https://img.shields.io/badge/CI%20Node-22%20%7C%2024-brightgreen.svg)](#requirements)
+[![CI Node](https://img.shields.io/badge/CI%20Node-24%20%7C%2026%2C%20npm%2012-brightgreen.svg)](#requirements)
 
 ## Features
 
@@ -33,12 +33,25 @@ your cards never leave your machine.
 
 ## Requirements
 
-- **Node.js and npm.** CI targets Node 22.x and 24.x; `.nvmrc` selects 22.
-  `package.json` declares Node `>=20`, but locked test dependencies declare
-  stricter engine requirements: at least 22.22.2 within Node 22 and 24.15.0
-  within Node 24. CI does not test those exact floors. By default, npm may warn
-  rather than reject an unsupported version. Node runs the local tools and the
-  included launcher; the built app is static files.
+- **Node.js `^24.15.0 || ^26.0.0` and npm `^12.0.0`.** `package.json` declares
+  both ranges, and `package-lock.json` repeats them at the root of the lockfile.
+  Node 26 is preferred for local development and `.nvmrc` selects it. Node
+  24.15.0 is the oldest supported release. Other Node majors, including 22, are
+  outside this support promise.
+- **Six CI combinations.** CI tests Node 24.15.0, the latest 24.x, 26.0.0, and
+  the latest 26.x, each with the latest npm 12; it also tests Node 24.15.0 and
+  26.0.0 with npm 12.0.0. Every entry runs the locked install, the type check, the
+  tests, and the build, and enforces the dependency engine ranges during that
+  install.
+- **Install scripts.** npm 12 does not run a dependency install script that
+  `package.json` does not approve. It blocks the script and prints a warning; it
+  does not fail the install. The approved build dependency is esbuild, approved
+  by exact version under `allowScripts`. A new esbuild version needs a new
+  approval.
+- **No local version guard.** No install step and no launcher rejects an
+  unsupported Node or npm version on your machine; only CI enforces the ranges.
+  Node runs the local tools and the included launcher. The deployed app remains
+  static files for the browser.
 - A modern browser with IndexedDB — Chrome, Edge, Firefox, or Safari.
 
 ## Quick start
@@ -148,8 +161,8 @@ npm test        # Vitest suite
 npm run build   # production build
 ```
 
-All three run in CI on every push to `main` and every pull request, on Node 22 and
-24. Run them before you open a pull request.
+All three run in CI on every push to `main` and every pull request, on each of the
+six supported Node and npm combinations. Run them before you open a pull request.
 
 ## Contributing
 

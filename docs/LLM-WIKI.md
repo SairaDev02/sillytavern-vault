@@ -28,7 +28,7 @@ Definition of done for a code change:
 3. `npm run build` succeeds.
 4. The matching document is updated.
 
-There is no local linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands on Node 22 and 24 for pushes to `main`, pull requests, and manual dispatch. See `CONTRIBUTING.md` for the merge expectations. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
+There is no local linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands for pushes to `main`, pull requests, and manual dispatch. It tests six Node and npm combinations: Node 24.15.0, the latest 24.x, 26.0.0, and the latest 26.x with the latest npm 12, and Node 24.15.0 and 26.0.0 with npm 12.0.0. Each combination enforces the dependency engine ranges during the install. See `CONTRIBUTING.md` for the merge expectations. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
 
 ---
 
