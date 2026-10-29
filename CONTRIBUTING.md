@@ -18,8 +18,8 @@ you spend time on the implementation.
 
 ## Requirements
 
-- Node.js **20 or newer** (22 LTS recommended).
-- npm (the repository ships a `package-lock.json`).
+- Node.js and npm. See the [README requirements](README.md#requirements) for
+  CI versions and locked dependency engine constraints.
 
 ## Setup
 
@@ -92,7 +92,8 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 - Link the issue the pull request closes, for example `Closes #12`.
 - Keep the history clean. Squash fixup commits before you ask for review.
 - Expect CI to run `npm run check`, `npm test`, and `npm run build` on Node 22
-  and 24. A red CI run blocks merge.
+  and 24. Do not merge a red CI run. As of 2026-10-29, GitHub has no branch
+  protection or repository rulesets enforcing this expectation on `main`.
 
 ### Documentation style
 

@@ -28,7 +28,7 @@ Definition of done for a code change:
 3. `npm run build` succeeds.
 4. The matching document is updated.
 
-No CI gate to hide behind locally, and no linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands on Node 22 and 24 for every push and pull request, so a local failure becomes a red pull request. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
+There is no local linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands on Node 22 and 24 for pushes to `main`, pull requests, and manual dispatch. See `CONTRIBUTING.md` for the merge expectations. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
 
 ---
 
@@ -368,7 +368,7 @@ Pitfalls:
 - Download feedback only covers a failure the app can detect while preparing the file. A browser handoff is not proof the file was saved, so nothing reports a saved file.
 - No virtualisation; `dbGetAll` loads the whole library, the gallery renders `PAGE_SIZE` at a time.
 - No backdrop-click close in the lightbox (Escape and buttons only).
-- No CI, ESLint, Prettier, or `.editorconfig`.
+- No ESLint or Prettier; `.editorconfig` provides editor settings.
 - `MasonryGrid`'s `animate` prop is `true` by literal at its only call site.
 - `--color-bg-card` in `src/style.css` is unused.
 
