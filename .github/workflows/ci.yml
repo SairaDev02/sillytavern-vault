@@ -102,11 +102,11 @@ jobs:
         run: npm run build
 
   runtime-node-26-0-0-npm-12:
-    # PROBE: this job is deliberately skipped to test the fail-closed gate.
-    if: ${{ false }}
     name: runtime (node 26.0.0, npm latest 12)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # PROBE: a failing step masked by continue-on-error.
+    continue-on-error: true
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,6 +137,9 @@ jobs:
 
       - name: Build the production bundle
         run: npm run build
+      - name: PROBE masked failure
+        run: exit 1
+
 
   runtime-node-26-latest-npm-12:
     name: runtime (node 26.x latest, npm latest 12)
