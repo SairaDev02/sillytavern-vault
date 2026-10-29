@@ -136,6 +136,19 @@ describe('evaluateRun', () => {
     expect(result.failures.join('\n')).toMatch(/optional check[\s\S]*failure/);
   });
 
+  it('fails a job that contains a neutral step', () => {
+    const jobs = allPassingJobs();
+    jobs[1] = job('runtime (node 26, npm 12)', 'success', [
+      step('Run tests', 'success'),
+      step('Run optional check', 'neutral'),
+    ]);
+
+    const result = evaluate({ jobs });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures.join(' ')).toMatch(/optional check[\s\S]*neutral/);
+  });
+
   it('passes when the only extra step is skipped', () => {
     const jobs = allPassingJobs();
     jobs[0] = job('runtime (node 24, npm 12)', 'success', [
@@ -321,7 +334,7 @@ describe('decideNoPullRequest', () => {
     expect(decision.reason).toMatch(/fails closed/i);
   });
 
-  it('does not post for a resolved pull request', () => {
+  it('posts when a pull request resolves', () => {
     expect(decideNoPullRequest({ event: 'pull_request', pullNumbers: [42] }).post).toBe(true);
   });
 });
@@ -350,6 +363,12 @@ describe('the repository required contexts', () => {
       await readFile(join(ROOT, '.github', 'rulesets', 'main-merge-gate.json'), 'utf8'),
     );
 
+    const codeql = await readFile(join(ROOT, '.github', 'workflows', 'codeql.yml'), 'utf8');
+    const dependencyReview = await readFile(
+      join(ROOT, '.github', 'workflows', 'dependency-review.yml'),
+      'utf8',
+    );
+
     const statusChecks = ruleset.rules.find((rule) => rule.type === 'required_status_checks');
     const contexts = statusChecks.parameters.required_status_checks.map((entry) => entry.context);
 
@@ -357,6 +376,11 @@ describe('the repository required contexts', () => {
     for (const name of loadExpectedContexts(parsed, 'CI')) {
       expect(ci).toContain(`name: ${name}`);
       expect(contexts).toContain(name);
+    }
+    // The other two source workflows declare the job names the gate expects.
+    for (const name of loadExpectedContexts(parsed, 'CodeQL')) expect(codeql).toContain(name);
+    for (const name of loadExpectedContexts(parsed, 'Dependency review')) {
+      expect(dependencyReview).toContain(name);
     }
     // Every expected job of every workflow must be a required context.
     for (const name of Object.values(parsed).flat()) expect(contexts).toContain(name);
@@ -380,6 +404,50 @@ describe('the repository required contexts', () => {
 });
 
 describe('ci-gate CLI', () => {
+  it('publishes a failure check when a pull request run resolves no pull request', async () => {
+    const api = await startStubApi({ associatedPulls: [] });
+    const eventPath = await tempEventFile(eventPayload({ event: 'pull_request', pull_requests: [] }));
+    const contextsPath = await tempContextsFile();
+
+    const result = await runCli({
+      env: {
+        GITHUB_TOKEN: 'placeholder-not-a-real-token',
+        GITHUB_REPOSITORY: 'x/y',
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_API_URL: api.baseUrl,
+        REQUIRED_CONTEXTS_FILE: contextsPath,
+      },
+    });
+
+    expect(result.code).toBe(1);
+    expect(api.state.checkRuns).toHaveLength(1);
+    expect(api.state.checkRuns[0]).toMatchObject({
+      name: 'gate (CI)',
+      conclusion: 'failure',
+      head_sha: 'abc1234deadbeef',
+    });
+    expect(api.state.checkRuns[0].output.summary).toMatch(/could not resolve the pull request/i);
+  });
+
+  it('publishes no check for a push that has no pull request', async () => {
+    const api = await startStubApi({ associatedPulls: [] });
+    const eventPath = await tempEventFile(eventPayload({ event: 'push', pull_requests: [] }));
+    const contextsPath = await tempContextsFile();
+
+    const result = await runCli({
+      env: {
+        GITHUB_TOKEN: 'placeholder-not-a-real-token',
+        GITHUB_REPOSITORY: 'x/y',
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_API_URL: api.baseUrl,
+        REQUIRED_CONTEXTS_FILE: contextsPath,
+      },
+    });
+
+    expect(result.code).toBe(0);
+    expect(api.state.checkRuns).toHaveLength(0);
+  });
+
   it('exits 1 with a clear message when GITHUB_TOKEN is absent', async () => {
     const eventPath = await tempEventFile(eventPayload());
     const contextsPath = await tempContextsFile();
