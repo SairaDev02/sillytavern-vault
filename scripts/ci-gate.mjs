@@ -32,6 +32,7 @@ const BLOCKING_STEP_CONCLUSIONS = new Set([
   'timed_out',
   'action_required',
   'stale',
+  'neutral',
 ]);
 
 /** A run has far fewer pages than this. Exceeding it means the API misbehaved. */
@@ -39,14 +40,18 @@ const MAX_JOB_PAGES = 20;
 
 // ------------------------------------------------------------------ core
 
-function describeConclusion(value) {
-  return value === undefined || value === null || value === '' ? 'none' : `"${value}"`;
+/**
+ * Render a conclusion for a log line or the summary table. A missing value is
+ * `none`, and the failure lines quote the value so that an empty string stays
+ * visible next to a real one.
+ */
+function formatConclusion(value, { quote = false } = {}) {
+  if (value === undefined || value === null || value === '') return 'none';
+  return quote ? `"${value}"` : String(value);
 }
 
-/** The summary table shows the plain value; the failure lines quote it. */
-function tableConclusion(value) {
-  return value === undefined || value === null || value === '' ? 'none' : String(value);
-}
+const describeConclusion = (value) => formatConclusion(value, { quote: true });
+const tableConclusion = (value) => formatConclusion(value);
 
 /**
  * Decide the gate result from a completed workflow run.
@@ -308,8 +313,32 @@ async function fetchRunJobs(runId) {
 }
 
 /**
- * Resolve the pull request whose head is this commit. A push to the default
- * branch has no such pull request, and there is nothing to gate.
+ * Decide whether a run needs a check on a pull request.
+ *
+ * A push to the default branch has no pull request, so there is nothing to gate
+ * and the gate stays silent. A `pull_request` run must resolve to a pull
+ * request: when it does not, the gate fails closed instead of leaving the pull
+ * request blocked with no diagnosis. That case is reachable for a fork pull
+ * request, where the commit-to-pull-request lookup can miss.
+ *
+ * @returns {{ post: boolean, reason: string }}
+ */
+export function decideNoPullRequest({ event, pullNumbers }) {
+  const found = Array.isArray(pullNumbers) && pullNumbers.some((number) => number);
+  if (found) return { post: true, reason: 'a pull request was resolved' };
+  const fromPullRequest = event === 'pull_request' || event === 'pull_request_target';
+  return fromPullRequest
+    ? {
+        post: true,
+        reason:
+          'the run belongs to a pull request, but no pull request resolved for its head commit. ' +
+          'The gate fails closed so that the missing result is visible.',
+      }
+    : { post: false, reason: 'the run is a push without a pull request, so there is nothing to gate' };
+}
+
+/**
+ * Resolve the pull request whose head is this commit.
  */
 async function resolvePullRequestNumber(workflowRun) {
   const fromEvent = Array.isArray(workflowRun?.pull_requests) ? workflowRun.pull_requests : [];
@@ -380,13 +409,24 @@ async function main() {
   );
 
   const pullNumber = await resolvePullRequestNumber(run);
-  if (pullNumber === null) {
+  const decision = decideNoPullRequest({ event: run.event, pullNumbers: [pullNumber] });
+  if (!decision.post) {
     log(
       `No open pull request is associated with commit ${state.headSha}. ` +
-        'This is a push without a pull request, so there is nothing to gate. ' +
-        'The gate publishes no check run.',
+        `${decision.reason}. The gate publishes no check run.`,
     );
     return 0;
+  }
+  if (pullNumber === null) {
+    warn(`The gate cannot resolve a pull request: ${decision.reason}`);
+    await publishCheck({
+      ok: false,
+      title: `${state.checkName} could not resolve a pull request`,
+      summary:
+        'The gate failed closed because it could not resolve the pull request for ' +
+        `commit \`${state.headSha}\`. ${decision.reason}`,
+    });
+    return 1;
   }
   log(`The commit belongs to pull request #${pullNumber}.`);
 

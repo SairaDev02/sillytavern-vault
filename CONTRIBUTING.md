@@ -58,7 +58,10 @@ it enforces the dependency engine ranges during the install. A locked
 ### Code
 
 - **TypeScript everywhere.** `src/` and `tests/` are type-checked by
-  `svelte-check`. Do not add `any` to silence a real type problem.
+  `svelte-check`. Do not add `any` to silence a real type problem. The one
+exception is a script under `scripts/`, which runs directly under Node and is
+  plain JavaScript with JSDoc types; its test is a `.test.mjs` file, because
+  `tsconfig.json` covers `src/` and the TypeScript tests only.
 - **Svelte 5 runes.** Use `$state`, `$derived`, and `$effect`. Do not mix in
   Svelte 4 stores or `export let` props in new code.
 - **Keep layout in CSS.** The masonry layout is deliberately pure CSS. Do not add

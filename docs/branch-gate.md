@@ -59,7 +59,11 @@ blocks every pull request rather than gating the job that it names. Evidence
 row 1 of section 8 records the readback that established this rule.
 
 `.github/required-contexts.json` is the single source for the job names that
-each gate check requires. Do not copy those names into another file.
+each gate check requires. The ruleset payload lists the contexts that the branch
+rule enforces, and `tests/ci-gate.test.mjs` fails when the three sources
+disagree: the job names in `ci.yml`, the entries in `required-contexts.json`, and
+the contexts in `main-merge-gate.json`. Change a job name in one place, and that
+test names the others.
 
 ## 3. The fail-closed transport
 
@@ -102,6 +106,11 @@ ignored.
 
 The verifier publishes no check when the commit belongs to no open pull
 request, for example a push to `main`. Nothing needs a gate in that case.
+
+A `pull_request` run that resolves to no pull request is the exception. The
+verifier then publishes a `failure` check, because a silent absence would leave
+the pull request blocked with no diagnosis. That case is reachable for a fork
+pull request, where the commit-to-pull-request lookup can miss.
 
 ### 3.3 What each result does
 
@@ -208,6 +217,12 @@ administrator role, with `bypass_mode: pull_request`.
 The bypass works on a pull request. A direct push does not use it. A bypass
 still produces a pull request record, and the pull request holds the reason.
 
+`actor_id` 5 is the `RepositoryRole` for the repository administrator. Read it
+back rather than take the number on trust. `GET .../rulesets/<id>` reports
+`"current_user_can_bypass": "pull_requests_only"` for an administrator, and
+`"never"` when the caller has no bypass actor. Evidence row 20 of section 8
+records that readback for both rulesets.
+
 ### 6.2 A human authorizes every bypass
 
 An agent must obtain human authorization before every bypass. Put the reason on
@@ -313,7 +328,14 @@ A row records one observation. The rollout of 2026-10-29 appears below.
 | 2026-10-29 | `main-gate-probe`, disposable, `protected-test` | `non_fast_forward` | Force push rejected; an ordinary push allowed | Ordinary push succeeded; `git push --force` rejected with "push declined due to repository rule violations"; branch unchanged | disposable equivalent |
 | 2026-10-29 | `main-gate-probe`, disposable, `protected-test` | `deletion` | Branch deletion rejected | `git push origin --delete protected-test` rejected with the same message; the branch still exists | disposable equivalent |
 | 2026-10-29 | `sillytavern-vault@main` | CodeQL findings in the verifier itself | Advisory at the agreed threshold | Two `js/file-access-to-http` alerts, security severity `medium`, state `open` on `scripts/ci-gate.mjs`; they do not block, and they are not suppressed | readback only |
-| 2026-10-29 | `sillytavern-vault@main` | Rulesets `main-protection` id 26121627 and `main-merge-gate` id 26121638 | The payloads from this repository | `main-protection`: `deletion`, `non_fast_forward`, no bypass actor, `current_user_can_bypass` `never`. `main-merge-gate`: `pull_request`, `required_status_checks` with eleven contexts, `code_scanning` CodeQL `high_or_higher` and `none`, bypass `RepositoryRole` 5 `pull_request` | readback only |
+| 2026-10-29 | `sillytavern-vault@main` | Rulesets `main-protection` id 26121627 and `main-merge-gate` id 26121638 | The payloads from this repository | `main-protection`: `deletion`, `non_fast_forward`, no bypass actor, `current_user_can_bypass` `never`. `main-merge-gate`: `pull_request`, `required_status_checks` with eleven contexts, `code_scanning` CodeQL `high_or_higher` and `none`, bypass `RepositoryRole` 5 `pull_request`, `current_user_can_bypass` `pull_requests_only` | readback only |
+| 2026-10-29 | PR #53 `e8b30db`, the `Gate` workflow disabled | The safeguard's own absence | Merge blocked with every leaf check green | Eight leaf checks `success`, no `gate (...)` check on the commit, merge `BLOCKED` | live PR |
+| 2026-10-29 | PR #53 `ebc403d`, the `Gate` workflow re-enabled | Partial reporting by the safeguard | Blocked until the last gate check reports | `gate (CI)` and `gate (Dependency review)` `success` while `gate (CodeQL)` was still absent: merge `BLOCKED`. With all three: `CLEAN` | live PR |
+| 2026-10-29 | `sillytavern-vault@40875186545` and the merged `main` run | The `dist` artifact | Still produced, same contents and retention | Artifact `dist`, 38618 bytes, retention 7 days (`expires_at` seven days after creation), on both the pull request run and the `main` push run | live PR |
+| 2026-10-29 | Windows 11, node v24.15.0 with npm 12.2.1 | The launcher at the Node 24 floor | Builds and serves, HTTP 200 | `node scripts/start.mjs --force --no-open` built the bundle and served HTTP 200 on `localhost` and `[::1]` | live local |
+| 2026-10-29 | Windows 11, node v26.0.0 with npm 12.2.1 | The launcher at the Node 26 floor | Builds and serves, HTTP 200 | The same result as the Node 24 floor | live local |
+| 2026-10-29 | npm 12.2.0, a package outside the repository | An unapproved install script | Blocked and warned, install still exits 0 | `npm warn install-scripts 1 package had install scripts blocked because they are not covered by allowScripts: esbuild@0.25.12 (postinstall: node install.js)`; no failure | live local |
+| 2026-10-29 | The repository install | The approved build dependency | The version-specific approval still runs the script | `allowScripts.esbuild@0.25.12` approved it; `node_modules/@esbuild/win32-x64/esbuild.exe` is present and reports 0.25.12. A bump to another version needs a new approval in the same pull request | live local |
 
 ### 8.1 What the log does not prove
 
@@ -321,7 +343,9 @@ These cases are unverified as of 2026-10-29. Do not treat them as passing.
 
 - **A fork pull request.** The repository owner cannot fork the repository, and
   no second identity was available. The `workflow_run` behaviour for a fork, and
-  the GitHub approval for a fork workflow, are unproven here.
+  the GitHub approval for a fork workflow, are unproven here. If the
+  commit-to-pull-request lookup misses there, the verifier now publishes a
+  `failure` check, so the pull request stays blocked and the reason is visible.
 - **A Dependabot pull request.** No Dependabot pull request was produced in this
   window. Its restricted permissions, and the effect of the labels that
   `.github/dependabot.yml` names but the repository does not define, are

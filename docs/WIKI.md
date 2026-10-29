@@ -116,13 +116,14 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/components/CharacterForm.svelte` | Add and edit form. |
 | `tests/` | Vitest files and helpers. See section 11. |
 | `scripts/start.mjs` | The `npm start` launcher. It checks the age of `dist/`, builds when needed, and serves the result. |
+| `scripts/ci-gate.mjs` | The fail-closed check gate. It reads the triggering run's job and step conclusions and publishes the required check. See `docs/branch-gate.md`. |
 | `start.cmd` | Double-click launcher for Windows. It installs dependencies on the first run. |
-| `docs/` | This wiki, the LLM wiki, the layout design, and the writing rules. |
+| `docs/` | This wiki, the LLM wiki, the branch gate, the layout design, and the writing rules. |
 | `README.md` | The public entry point. Features, setup, and the data model in plain terms. |
 | `LICENSE`, `NOTICE` | The Apache-2.0 license and the attribution file. |
 | `CONTRIBUTING.md` | Setup, conventions, the commit format, and the pull request process. |
 | `CHANGELOG.md` | Release history in Keep a Changelog form. |
-| `.github/` | CI, CodeQL, dependency review, Dependabot, and the issue and pull request templates. |
+| `.github/` | CI, CodeQL, dependency review, the gate workflow and its required contexts, the main-branch ruleset payloads, Dependabot, and the issue and pull request templates. |
 
 ## 6. Data Model
 
@@ -570,6 +571,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
 | `tests/download-attempts.test.ts` | Download ordering and the notice through the owner's public interface: detected failure versus handoff, the captured Character, dismissal, and cross-Character independence. The helper is mocked, so each attempt settles when the test says. |
 | `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
+| `tests/ci-gate.test.mjs` | The gate's fail-closed rules for a failed, skipped, cancelled, neutral, timed-out, or missing job and for a failed step inside a `success` job, the pull-request decision, and the tie between `ci.yml`, `required-contexts.json`, and the ruleset payload. |
 
 Helpers:
 
@@ -706,7 +708,7 @@ Change the token in `src/style.css`. The components use the token names, so no c
 
 ### Add a component test
 
-Follow the recipe in section 13. Add the file to `tests/`. No configuration change is necessary, because the include pattern is `tests/**/*.test.ts`.
+Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` for a test that `svelte-check` type-checks, or `*.test.mjs` for a test of a plain-JS `scripts/` module, which `tsconfig.json` does not cover. Both patterns are in the `include` list in `vitest.config.ts`.
 
 ## 16. Design Decisions and History
 
@@ -747,6 +749,7 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 | Document | Audience | Update when |
 |---|---|---|
 | `docs/WIKI.md` | Developers | A module, a flow, or a convention changes. |
+| `docs/branch-gate.md` | Maintainers and agents | A required context, a threshold, the bypass policy, or a verification result changes. |
 | `docs/LLM-WIKI.md` | Coding agents | The file map, the invariants, or the commands change. |
 | `docs/designMasonry.md` | Developers | The layout strategy or the animation model changes. |
 | `docs/adr/` | Developers | A decision that constrains future changes is settled. |
