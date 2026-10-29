@@ -14,12 +14,19 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { decideNoPullRequest, evaluateRun, loadExpectedContexts } from '../scripts/ci-gate.mjs';
+import {
+  decideNoPullRequest,
+  evaluateRun,
+  loadWorkflowExpectations,
+} from '../scripts/ci-gate.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join(ROOT, 'scripts', 'ci-gate.mjs');
 
 const EXPECTED = ['runtime (node 24, npm 12)', 'runtime (node 26, npm 12)'];
+
+/** Work this fixture declares as required in every expected job. */
+const REQUIRED_STEPS = ['Run tests'];
 
 function step(name, conclusion) {
   return { name, conclusion };
@@ -43,6 +50,7 @@ function evaluate(overrides = {}) {
     run: { name: 'CI', conclusion: 'success', head_sha: 'abc1234deadbeef' },
     jobs: allPassingJobs(),
     expectedJobNames: EXPECTED,
+    requiredStepNames: REQUIRED_STEPS,
     ...overrides,
   });
 }
@@ -149,11 +157,55 @@ describe('evaluateRun', () => {
     expect(result.failures.join(' ')).toMatch(/optional check[\s\S]*neutral/);
   });
 
-  it('passes when the only extra step is skipped', () => {
+  it('fails when a required step is skipped inside a successful job', () => {
+    const jobs = allPassingJobs();
+    jobs[0] = job('runtime (node 24, npm 12)', 'success', [step('Run tests', 'skipped')]);
+
+    const result = evaluate({ jobs });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures.join('\n')).toMatch(/required step "Run tests"[\s\S]*skipped/);
+  });
+
+  it('fails when a required step is absent from a successful job', () => {
+    const jobs = allPassingJobs();
+    jobs[1] = job('runtime (node 26, npm 12)', 'success', [
+      step('Upload the production bundle', 'success'),
+    ]);
+
+    const result = evaluate({ jobs });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures.join('\n')).toMatch(/required step "Run tests"[\s\S]*missing/);
+  });
+
+  it('fails when a required step appears more than once', () => {
     const jobs = allPassingJobs();
     jobs[0] = job('runtime (node 24, npm 12)', 'success', [
       step('Run tests', 'success'),
-      step('Upload the bundle', 'skipped'),
+      step('Run tests', 'success'),
+    ]);
+
+    const result = evaluate({ jobs });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures.join('\n')).toMatch(/required step "Run tests"[\s\S]*more than once/);
+  });
+
+  it('fails when no required steps are declared', () => {
+    const result = evaluate({ requiredStepNames: [] });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures.join('\n')).toMatch(/no required step names/i);
+  });
+
+  it('passes when a step the gate does not declare is skipped', () => {
+    // The conditional artifact upload may legitimately skip; declaring it would
+    // turn every ordinary pull request red.
+    const jobs = allPassingJobs();
+    jobs[0] = job('runtime (node 24, npm 12)', 'success', [
+      step('Run tests', 'success'),
+      step('Upload the production bundle', 'skipped'),
     ]);
 
     expect(evaluate({ jobs }).ok).toBe(true);
@@ -188,28 +240,47 @@ describe('evaluateRun', () => {
   });
 });
 
-describe('loadExpectedContexts', () => {
+describe('loadWorkflowExpectations', () => {
   const parsed = {
-    CI: ['runtime (node 24, npm 12)'],
-    'Dependency review': ['review dependency changes'],
+    CI: { jobs: ['runtime (node 24, npm 12)'], requiredSteps: ['Run tests'] },
+    'Dependency review': {
+      jobs: ['review dependency changes'],
+      requiredSteps: ['Review dependency changes'],
+    },
   };
 
-  it('returns the expected job names for a known workflow', () => {
-    expect(loadExpectedContexts(parsed, 'Dependency review')).toEqual([
-      'review dependency changes',
-    ]);
+  it('returns the job names and the required steps for a known workflow', () => {
+    expect(loadWorkflowExpectations(parsed, 'Dependency review')).toEqual({
+      jobNames: ['review dependency changes'],
+      requiredSteps: ['Review dependency changes'],
+    });
   });
 
   it('throws for an unknown workflow instead of treating it as nothing to check', () => {
-    expect(() => loadExpectedContexts(parsed, 'Unknown workflow')).toThrow(/Unknown workflow/);
+    expect(() => loadWorkflowExpectations(parsed, 'Unknown workflow')).toThrow(/Unknown workflow/);
   });
 
-  it('throws when the workflow maps to an empty list', () => {
-    expect(() => loadExpectedContexts({ CI: [] }, 'CI')).toThrow(/CI/);
+  it('throws when the workflow declares no job names', () => {
+    expect(() => loadWorkflowExpectations({ CI: { jobs: [], requiredSteps: ['Run tests'] } }, 'CI'))
+      .toThrow(/CI/);
   });
 
-  it('throws when the workflow entry is not a list of names', () => {
-    expect(() => loadExpectedContexts({ CI: 'runtime' }, 'CI')).toThrow(/CI/);
+  it('throws when the workflow declares no required steps', () => {
+    expect(() =>
+      loadWorkflowExpectations({ CI: { jobs: ['runtime (node 24, npm 12)'], requiredSteps: [] } }, 'CI'),
+    ).toThrow(/CI/);
+  });
+
+  it('throws for the bare job-name list the file used to hold', () => {
+    expect(() => loadWorkflowExpectations({ CI: ['runtime (node 24, npm 12)'] }, 'CI')).toThrow(
+      /requiredSteps/,
+    );
+  });
+
+  it('throws when a required step is not a name', () => {
+    expect(() =>
+      loadWorkflowExpectations({ CI: { jobs: ['runtime (node 24, npm 12)'], requiredSteps: [''] } }, 'CI'),
+    ).toThrow(/CI/);
   });
 });
 
@@ -315,7 +386,13 @@ async function tempContextsFile() {
   const path = join(await tempDir(), 'required-contexts.json');
   await writeFile(
     path,
-    JSON.stringify({ CI: EXPECTED, 'Dependency review': ['review dependency changes'] }),
+    JSON.stringify({
+      CI: { jobs: EXPECTED, requiredSteps: REQUIRED_STEPS },
+      'Dependency review': {
+        jobs: ['review dependency changes'],
+        requiredSteps: ['Review dependency changes'],
+      },
+    }),
     'utf8',
   );
   return path;
@@ -339,19 +416,53 @@ describe('decideNoPullRequest', () => {
   });
 });
 
+/** Every job name the repository's contexts file declares, in file order. */
+function jobNamesOf(parsed) {
+  return Object.values(parsed).flatMap((entry) => entry.jobs);
+}
+
 describe('the repository required contexts', () => {
   it('lists the six CI jobs, the CodeQL job, and the dependency-review job', async () => {
     const parsed = JSON.parse(
       await readFile(join(ROOT, '.github', 'required-contexts.json'), 'utf8'),
     );
 
-    expect(loadExpectedContexts(parsed, 'CI')).toHaveLength(6);
-    expect(loadExpectedContexts(parsed, 'CI')).toContain('runtime (node 24.15.0, npm latest 12)');
-    expect(loadExpectedContexts(parsed, 'CI')).toContain('runtime (node 26.0.0, npm 12.0.0)');
-    expect(loadExpectedContexts(parsed, 'CodeQL')).toEqual(['analyze javascript-typescript']);
-    expect(loadExpectedContexts(parsed, 'Dependency review')).toEqual([
-      'review dependency changes',
+    const ci = loadWorkflowExpectations(parsed, 'CI');
+    expect(ci.jobNames).toHaveLength(6);
+    expect(ci.jobNames).toContain('runtime (node 24.15.0, npm latest 12)');
+    expect(ci.jobNames).toContain('runtime (node 26.0.0, npm 12.0.0)');
+    expect(ci.requiredSteps).toEqual([
+      'Install dependencies',
+      'Type-check',
+      'Run the test suite',
+      'Build the production bundle',
     ]);
+    expect(loadWorkflowExpectations(parsed, 'CodeQL')).toEqual({
+      jobNames: ['analyze javascript-typescript'],
+      requiredSteps: ['Initialize CodeQL', 'Analyze'],
+    });
+    expect(loadWorkflowExpectations(parsed, 'Dependency review')).toEqual({
+      jobNames: ['review dependency changes'],
+      requiredSteps: ['Review dependency changes'],
+    });
+  });
+
+  it('declares only steps that its own workflow file really runs', async () => {
+    const parsed = JSON.parse(
+      await readFile(join(ROOT, '.github', 'required-contexts.json'), 'utf8'),
+    );
+    const files = {
+      CI: 'ci.yml',
+      CodeQL: 'codeql.yml',
+      'Dependency review': 'dependency-review.yml',
+    };
+
+    for (const [workflow, file] of Object.entries(files)) {
+      const text = await readFile(join(ROOT, '.github', 'workflows', file), 'utf8');
+      for (const name of loadWorkflowExpectations(parsed, workflow).requiredSteps) {
+        expect(text).toContain(`name: ${name}`);
+      }
+    }
   });
 
   it('ties ci.yml, required-contexts.json, and the ruleset payload together', async () => {
@@ -373,17 +484,19 @@ describe('the repository required contexts', () => {
     const contexts = statusChecks.parameters.required_status_checks.map((entry) => entry.context);
 
     // Every CI job the gate expects must exist in ci.yml under that exact name.
-    for (const name of loadExpectedContexts(parsed, 'CI')) {
+    for (const name of loadWorkflowExpectations(parsed, 'CI').jobNames) {
       expect(ci).toContain(`name: ${name}`);
       expect(contexts).toContain(name);
     }
     // The other two source workflows declare the job names the gate expects.
-    for (const name of loadExpectedContexts(parsed, 'CodeQL')) expect(codeql).toContain(name);
-    for (const name of loadExpectedContexts(parsed, 'Dependency review')) {
+    for (const name of loadWorkflowExpectations(parsed, 'CodeQL').jobNames) {
+      expect(codeql).toContain(name);
+    }
+    for (const name of loadWorkflowExpectations(parsed, 'Dependency review').jobNames) {
       expect(dependencyReview).toContain(name);
     }
     // Every expected job of every workflow must be a required context.
-    for (const name of Object.values(parsed).flat()) expect(contexts).toContain(name);
+    for (const name of jobNamesOf(parsed)) expect(contexts).toContain(name);
     // The three gate checks are required and named after their source workflow.
     for (const workflow of Object.keys(parsed)) expect(contexts).toContain(`gate (${workflow})`);
     // Every required context must come from the GitHub Actions app.
@@ -397,7 +510,7 @@ describe('the repository required contexts', () => {
     const parsed = JSON.parse(
       await readFile(join(ROOT, '.github', 'required-contexts.json'), 'utf8'),
     );
-    const all = Object.values(parsed).flat();
+    const all = jobNamesOf(parsed);
 
     expect(new Set(all).size).toBe(all.length);
   });
@@ -537,6 +650,43 @@ describe('ci-gate CLI', () => {
     expect(api.state.checkRuns).toHaveLength(1);
     expect(api.state.checkRuns[0].conclusion).toBe('failure');
     expect(api.state.checkRuns[0].output.summary).toMatch(/skipped/);
+  });
+
+  it('publishes a failing check and exits 1 when a required step was skipped', async () => {
+    // The job concludes success, so only the declared step can catch this.
+    const api = await startStubApi({
+      jobPages: [
+        [
+          {
+            name: 'runtime (node 24, npm 12)',
+            conclusion: 'success',
+            steps: [{ name: 'Run tests', conclusion: 'skipped' }],
+          },
+          {
+            name: 'runtime (node 26, npm 12)',
+            conclusion: 'success',
+            steps: [{ name: 'Run tests', conclusion: 'success' }],
+          },
+        ],
+      ],
+    });
+    const eventPath = await tempEventFile(eventPayload());
+    const contextsPath = await tempContextsFile();
+
+    const result = await runCli({
+      env: {
+        GITHUB_TOKEN: 'placeholder-not-a-real-token',
+        GITHUB_REPOSITORY: 'x/y',
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_API_URL: api.baseUrl,
+        REQUIRED_CONTEXTS_FILE: contextsPath,
+      },
+    });
+
+    expect(result.code).toBe(1);
+    expect(api.state.checkRuns).toHaveLength(1);
+    expect(api.state.checkRuns[0].conclusion).toBe('failure');
+    expect(api.state.checkRuns[0].output.summary).toMatch(/required step "Run tests"/);
   });
 
   it('fetches every page of jobs', async () => {

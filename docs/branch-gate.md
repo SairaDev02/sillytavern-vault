@@ -44,9 +44,9 @@ rule back. Do not change a rule by hand without a matching payload change.
 | `runtime (node 26.0.0, npm 12.0.0)` | `CI` | The same sequence passes on the Node 26 floor with the npm 12 floor. |
 | `analyze javascript-typescript` | `CodeQL` | The analysis job completed for the pull request commit. It does not prove a clean scan. Section 4 covers findings. |
 | `review dependency changes` | `Dependency review` | The dependency review completed for the pull request commit. Section 4 covers the advisory threshold. |
-| `gate (CI)` | `Gate` | Every job named in `.github/required-contexts.json` for `CI` concluded `success` on the pull request head commit. |
-| `gate (CodeQL)` | `Gate` | The `CodeQL` job concluded `success` on the pull request head commit. |
-| `gate (Dependency review)` | `Gate` | The `Dependency review` job concluded `success` on the pull request head commit. |
+| `gate (CI)` | `Gate` | Every job named in `.github/required-contexts.json` for `CI` concluded `success` on the pull request head commit, and every declared required step in those jobs concluded `success`. |
+| `gate (CodeQL)` | `Gate` | The `CodeQL` job and its declared steps concluded `success` on the pull request head commit. |
+| `gate (Dependency review)` | `Gate` | The `Dependency review` job and its declared steps concluded `success` on the pull request head commit. |
 
 Each context must come from the GitHub Actions app. The payload pins that app
 by `integration_id` 15368. A check from a different app does not satisfy the
@@ -58,15 +58,33 @@ composed form never matches. A required context in the composed form therefore
 blocks every pull request rather than gating the job that it names. Evidence
 row 1 of section 8 records the readback that established this rule.
 
-`.github/required-contexts.json` is the single source for the job names that
-each gate check requires. The ruleset payload lists the contexts that the branch
-rule enforces, and `tests/ci-gate.test.mjs` fails when the three sources
-disagree: the job display names in `ci.yml`, `codeql.yml`, and
-`dependency-review.yml`; the entries in `required-contexts.json`; and the contexts
-in `main-merge-gate.json`. Change a job name in one place, and that test names the
-others. It compares names as text, so a rename that leaves the old name in a
-comment still passes. Treat the test as a trip wire, and read the real names back
-from a pull request as section 7 step 2 says.
+`.github/required-contexts.json` is the single source for what each gate check
+requires. Every workflow entry holds two lists:
+
+- `jobs`: the job display names, each of which must conclude `success`.
+- `requiredSteps`: the steps that carry the required work. Each must appear
+exactly once in every listed job and conclude `success`.
+
+A job can conclude `success` while a declared step is skipped, renamed, or
+deleted, and a pull request owns its own workflow file. `requiredSteps` closes
+that gap. Declare the work steps only. `Check out the repository`, the Node
+setup, and the artifact upload are not declared: the upload is conditional, and
+a declared step may not skip. An undeclared step that fails still blocks, either
+through the job conclusion or through the step rule in section 3.3.
+
+Renaming a declared step blocks every pull request, exactly as renaming a job
+does: the name the rule requires never reports. Treat such a rename as a gate
+change (section 6.5): it needs a human approval, and it needs the administrator
+bypass or the ruleset change that section 7 step 6 describes.
+
+The ruleset payload lists the contexts that the branch rule enforces, and
+`tests/ci-gate.test.mjs` fails when the sources disagree: the job display names
+in `ci.yml`, `codeql.yml`, and `dependency-review.yml`; the entries in
+`required-contexts.json`; and the contexts in `main-merge-gate.json`. Change a
+job name in one place, and that test names the others. It compares names as
+text, so a rename that leaves the old name in a comment still passes. Treat the
+test as a trip wire, and read the real names back from a pull request as
+section 7 step 2 says.
 
 ## 3. The fail-closed transport
 
@@ -102,7 +120,8 @@ these values:
 
 - The name `gate (<workflow name>)`, for example `gate (CI)`.
 - The conclusion `success` or `failure`.
-- A summary with a table of each expected job and its conclusion.
+- A summary with the declared steps and a table of each expected job and its
+  conclusion.
 
 A job that the gate does not require is ignored. The summary lists it as
 ignored.
@@ -129,11 +148,19 @@ pull request, where the commit-to-pull-request lookup can miss.
 | `neutral` | `failure` |
 | A required job name is absent | `failure` |
 | A required job name occurs more than once | `failure` |
-| A step in a required job is `failure`, `cancelled`, `timed_out`, `action_required`, or `stale` | `failure` |
+| A declared required step is absent from a required job | `failure` |
+| A declared required step occurs more than once in a required job | `failure` |
+| A declared required step concludes anything other than `success` | `failure` |
+| An undeclared step in a required job is `failure`, `cancelled`, `timed_out`, `action_required`, `stale`, or `neutral` | `failure` |
 | No gate check exists for the commit | The merge stays blocked, because a required context is absent. |
 
 The step rule catches a `continue-on-error` step. Such a step can fail while
 the job conclusion stays `success`.
+
+The declared-step rule catches the opposite case: a pull request that gives a
+work step an `if:` which skips it, or deletes the step, leaves the job at
+`success`. Only a declared step must conclude `success`, so a conditional
+step may still skip. The artifact upload is the one such step today.
 
 The verifier fails closed on its own input too:
 
@@ -276,8 +303,10 @@ merge. Do the steps in this order.
    check names from that pull request.
 3. Compare the names that you read with `.github/required-contexts.json` and
    with the eleven contexts in `main-merge-gate.json`. Compare the check run
-   `name` values, not the `workflow / job` form that the page shows. Correct
-   every difference in a new pull request. Do not guess a name.
+   `name` values, not the `workflow / job` form that the page shows. Compare the
+   step names too: a declared step that the run reports under another name
+   blocks the pull request. Correct every difference in a new pull request. Do
+   not guess a name.
 4. Apply `main-protection`, then `main-merge-gate`, from the payload files. A
    human authorizes this step. Record the ruleset readback in the evidence log.
 5. Read the applied rules back. Confirm the eleven contexts, the strict policy,
@@ -308,7 +337,8 @@ evidence class to show what the row proves:
 - **readback only**: the configuration, without an observed pull request
   result.
 
-A row records one observation. The rollout of 2026-10-29 appears below.
+A row records one observation. The rollout of 2026-10-29 and the follow-up of
+2026-10-30 appear below.
 
 | Date | Target (repo@sha / PR #) | Context or rule | Expected | Observed | Evidence class (live PR / disposable equivalent / readback only) |
 | --- | --- | --- | --- | --- | --- |
@@ -324,7 +354,7 @@ A row records one observation. The rollout of 2026-10-29 appears below.
 | 2026-10-29 | PR #48 `9b9e2af` | CodeQL findings | Blocked by the finding, not by the analysis | `analyze javascript-typescript` success; `CodeQL` findings check failure, 2 critical and 1 high; merge `BLOCKED` | live PR |
 | 2026-10-29 | PR #48 `59acee1` | One medium security finding only | Advisory, merge permitted | `CodeQL` findings check success, 1 medium; merge `CLEAN` | live PR |
 | 2026-10-29 | PR #50 `dfd6cc5` | One critical finding on a current base | Blocked | `CodeQL` findings check failure; merge `BLOCKED` | live PR |
-| 2026-10-29 | PR #50, alert 9 | Authorised dismissal with a written reason on the alert | Record the real effect on mergeability | `BLOCKED` to `CLEAN` within about 30 seconds; the `CodeQL` check run on the head commit stayed `failure`, so the rule evaluates alert state, not the check run | live PR |
+| 2026-10-29 | PR #50, alert 9 | Authorised dismissal with a written reason on the alert | Record the real effect on mergeability | `BLOCKED` to `CLEAN` within about 30 seconds, with the alert read back as `dismissed` and the reason on the alert. A later readback finds the `CodeQL` check run at `success`, and its check suite was updated one second after the dismissal, so the earlier claim that the run stayed `failure` is not reproducible from the API. The alert state is what unblocked the merge; the check run's pre-dismissal conclusion is not recoverable | live PR |
 | 2026-10-29 | PR #49 `0dc7033` | Out-of-date base | Blocked | `BEHIND`; a plain merge was refused with "the head branch is not up to date with the base branch" | live PR |
 | 2026-10-29 | PR #49, reason on the PR | Administrator pull-request-only bypass | Merge permitted, and separate from normal blocking | Merged with administrator privileges while `BEHIND`; authorisation and reason recorded on the PR | live PR |
 | 2026-10-29 | PR #51 `81cb220` to `f4d97e3` | Results for an older commit | A new commit is not authorised by the old results | `CLEAN` on `81cb220`; `BLOCKED` on `f4d97e3` while its own checks ran | live PR |
@@ -339,20 +369,28 @@ A row records one observation. The rollout of 2026-10-29 appears below.
 | 2026-10-29 | Windows 11, node v26.0.0 with npm 12.2.1 | The launcher at the Node 26 floor | Builds and serves, HTTP 200 | The same result as the Node 24 floor | live local |
 | 2026-10-29 | npm 12.2.0, a package outside the repository | An unapproved install script | Blocked and warned, and the install does not fail | `npm install` exit code **0**, measured directly rather than through a pipeline; four `npm warn install-scripts` lines; `npm install-scripts ls` reports `1 package has install scripts blocked because they are not covered by allowScripts: esbuild@0.25.12 (postinstall: node install.js)` | live local |
 | 2026-10-29 | The repository install, npm 12.2.0 | The approved build dependency | The version-specific approval allows the script, and the script really runs | `npm install-scripts ls` reports `No packages with unreviewed install scripts`; `npm ci --foreground-scripts` prints `npm notice run esbuild@0.25.12 postinstall` and `npm notice run node install.js`, which is lifecycle execution rather than a present binary; `npm ci` exit code **0**, measured directly. A bump to another version would no longer match `allowScripts.esbuild@0.25.12` | live local |
+| 2026-10-30 | `sillytavern-vault@f9190d5`, `evaluateRun` with the real `required-contexts.json` | A declared work step skipped inside a job that concludes `success` | Blocked | It was **not** blocked. An `if:` on `Run the test suite`, `Analyze`, or `Review dependency changes` left the job and the gate at `success`, because the step rule of section 3.3 covered only undeclared steps and required only job names | live local |
+| 2026-10-30 | The same fixture, on the repair that declares `requiredSteps` | The same three cases, and the all-`success` control | Blocked; the control still passes | `gate (CI)`, `gate (CodeQL)`, and `gate (Dependency review)` each returned `failure` naming the skipped step, and the control returned `success`. Section 3.3 now carries the rule. The live pull request probe waits for the merge | live local |
+| 2026-10-30 | Windows 11, node v24.15.0 with npm 12.2.1 | The launcher at the Node 24 floor, reproduced | Builds and serves, HTTP 200 | `npm start -- --force --no-open` under npm 12.2.1 built the bundle (`built in 2.58s`) and served 463 bytes with the app mount on `localhost` and `[::1]`; `127.0.0.1` refused, so the preview binds the `localhost` name rather than the IPv4 literal | live local |
+| 2026-10-30 | Windows 11, node v26.0.0 with npm 12.2.1 | The launcher at the Node 26 floor, reproduced | Builds and serves, HTTP 200 | The same result as the Node 24 floor, `localhost` and `[::1]` answering in 3.1 s | live local |
 
 ### 8.1 What the log does not prove
 
-These cases are unverified as of 2026-10-29. Do not treat them as passing.
+These cases are unverified as of 2026-10-30. Do not treat them as passing.
 
-- **A fork pull request.** The repository owner cannot fork the repository, and
-  no second identity was available. The `workflow_run` behaviour for a fork, and
-  the GitHub approval for a fork workflow, are unproven here. If the
-  commit-to-pull-request lookup misses there, the verifier now publishes a
-  `failure` check, so the pull request stays blocked and the reason is visible.
-- **A Dependabot pull request.** No Dependabot pull request was produced in this
-  window. Its restricted permissions, and the effect of the labels that
-  `.github/dependabot.yml` names but the repository does not define, are
-  unproven here.
+- **A fork pull request.** No fork pull request exists: the repository owner
+  cannot fork the repository, and no second identity was available. The
+  maintainer closed verification ticket #45 as not planned on 2026-10-29
+  instead of arranging one, so the `workflow_run` behaviour for a fork, and the
+  GitHub approval for a fork workflow, stay an accepted gap. No fork pull
+  request has ever produced a `gate (...)` check here. If the
+  commit-to-pull-request lookup misses, the verifier publishes a `failure`
+  check, so the pull request stays blocked and the reason is visible.
+- **A Dependabot pull request.** The same closed ticket covers it, and no
+  Dependabot pull request was produced in this window. Its restricted
+  permissions, and the effect of the labels that `.github/dependabot.yml`
+  names, are unproven. The labels now exist; the restricted-token behaviour has
+  not been observed.
 - **A `neutral` job conclusion.** A GitHub Actions job cannot conclude
   `neutral`. `continue-on-error` was observed instead, and it produced a
   `failure` job conclusion (section 8 above). The verifier also treats

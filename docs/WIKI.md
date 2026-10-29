@@ -116,7 +116,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/components/CharacterForm.svelte` | Add and edit form. |
 | `tests/` | Vitest files and helpers. See section 11. |
 | `scripts/start.mjs` | The `npm start` launcher. It checks the age of `dist/`, builds when needed, and serves the result. |
-| `scripts/ci-gate.mjs` | The fail-closed check gate. It reads the triggering run's job and step conclusions and publishes the required check. See `docs/branch-gate.md`. |
+| `scripts/ci-gate.mjs` | The fail-closed check gate. It reads the triggering run's job and step conclusions, requires the steps declared in `.github/required-contexts.json`, and publishes the required check. See `docs/branch-gate.md`. |
 | `start.cmd` | Double-click launcher for Windows. It installs dependencies on the first run. |
 | `docs/` | This wiki, the LLM wiki, the branch gate, the layout design, and the writing rules. |
 | `README.md` | The public entry point. Features, setup, and the data model in plain terms. |
@@ -571,7 +571,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
 | `tests/download-attempts.test.ts` | Download ordering and the notice through the owner's public interface: detected failure versus handoff, the captured Character, dismissal, and cross-Character independence. The helper is mocked, so each attempt settles when the test says. |
 | `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
-| `tests/ci-gate.test.mjs` | The gate's fail-closed rules for a failed, skipped, cancelled, neutral, timed-out, or missing job and for a failed step inside a `success` job, the pull-request decision, and the tie between `ci.yml`, `required-contexts.json`, and the ruleset payload. |
+| `tests/ci-gate.test.mjs` | The gate's fail-closed rules for a failed, skipped, cancelled, neutral, timed-out, or missing job, for a failed step inside a `success` job, and for a declared step that is missing, duplicated, or not `success`; the pull-request decision; and the tie between `ci.yml`, `required-contexts.json`, and the ruleset payload. |
 
 Helpers:
 

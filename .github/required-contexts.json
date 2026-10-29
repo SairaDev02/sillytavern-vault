@@ -1,12 +1,26 @@
 {
-  "CI": [
-    "runtime (node 24.15.0, npm latest 12)",
-    "runtime (node 24.x latest, npm latest 12)",
-    "runtime (node 26.0.0, npm latest 12)",
-    "runtime (node 26.x latest, npm latest 12)",
-    "runtime (node 24.15.0, npm 12.0.0)",
-    "runtime (node 26.0.0, npm 12.0.0)"
-  ],
-  "CodeQL": ["analyze javascript-typescript"],
-  "Dependency review": ["review dependency changes"]
+  "CI": {
+    "jobs": [
+      "runtime (node 24.15.0, npm latest 12)",
+      "runtime (node 24.x latest, npm latest 12)",
+      "runtime (node 26.0.0, npm latest 12)",
+      "runtime (node 26.x latest, npm latest 12)",
+      "runtime (node 24.15.0, npm 12.0.0)",
+      "runtime (node 26.0.0, npm 12.0.0)"
+    ],
+    "requiredSteps": [
+      "Install dependencies",
+      "Type-check",
+      "Run the test suite",
+      "Build the production bundle"
+    ]
+  },
+  "CodeQL": {
+    "jobs": ["analyze javascript-typescript"],
+    "requiredSteps": ["Initialize CodeQL", "Analyze"]
+  },
+  "Dependency review": {
+    "jobs": ["review dependency changes"],
+    "requiredSteps": ["Review dependency changes"]
+  }
 }
