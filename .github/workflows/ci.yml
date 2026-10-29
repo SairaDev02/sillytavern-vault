@@ -135,9 +135,6 @@ jobs:
 
       - name: Build the production bundle
         run: npm run build
-      - name: PROBE pending
-        run: sleep 600
-
 
   runtime-node-26-latest-npm-12:
     name: runtime (node 26.x latest, npm latest 12)
