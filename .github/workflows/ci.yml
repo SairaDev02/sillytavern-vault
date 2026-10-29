@@ -102,6 +102,8 @@ jobs:
         run: npm run build
 
   runtime-node-26-0-0-npm-12:
+    # PROBE: this job is deliberately skipped to test the fail-closed gate.
+    if: ${{ false }}
     name: runtime (node 26.0.0, npm latest 12)
     runs-on: ubuntu-latest
     timeout-minutes: 15
