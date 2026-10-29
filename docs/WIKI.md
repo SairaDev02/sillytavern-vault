@@ -12,7 +12,7 @@ The app has no backend. It has no runtime dependencies. All entries in `devDepen
 
 ## 2. Quick Start
 
-Requirements: Node.js and npm. See the [README requirements](../README.md#requirements) for the CI versions and locked dependency engine constraints. Node.js runs the local tools and the launcher. The built app is static files.
+Requirements: Node.js `^24.15.0 || ^26.0.0` and npm `^12.0.0`. `package.json` declares both ranges, and `package-lock.json` repeats them at the root of the lockfile. Node 26 is the preferred version for local development, and `.nvmrc` selects it. Node.js runs the local tools and the launcher. The built app is static files. No local install step and no launcher rejects an unsupported version. See the [README requirements](../README.md#requirements) for the full statement.
 
 | Command | Action |
 |---|---|
@@ -28,7 +28,7 @@ Requirements: Node.js and npm. See the [README requirements](../README.md#requir
 | `npm run test:watch` | Run the tests in watch mode. |
 | `npm run test:ui` | Open the Vitest user interface. |
 
-Run `npm run check`, `npm test`, and `npm run build` before you push. Continuous integration runs the same three commands on every push to `main` and every pull request, on Node 22 and Node 24. See `.github/workflows/ci.yml`. The repository has no linter and no formatter. See `CONTRIBUTING.md` for the merge expectations.
+Run `npm run check`, `npm test`, and `npm run build` before you push. Continuous integration runs the same three commands on every push to `main` and every pull request. It tests six Node and npm combinations. Each combination installs the locked dependencies with engine enforcement, then type-checks, tests, and builds. See `.github/workflows/ci.yml`. The repository has no linter and no formatter. See `CONTRIBUTING.md` for the merge expectations.
 
 The launcher in `scripts/start.mjs` takes `--dev`, `--port <n>`, `--host`, `--force`, `--no-build`, `--no-open`, and `--help`. On Windows, `start.cmd` does the same from a double click.
 
@@ -675,7 +675,7 @@ This is a manual smoke check, not part of `npm test`. It does not prove the foll
 
 `npm run build` writes `dist/index.html`, `dist/assets/*.css`, and `dist/assets/*.js`. The build does not run the type check. Run `npm run check` separately. `npm start` builds on demand and then serves the result; it does not run the type check.
 
-Continuous integration runs the check, the tests, and the build on Node 22 and 24 for pushes to `main`, pull requests, and manual dispatch. It also uploads the bundle as a build artifact. CodeQL runs on pushes to `main`, pull requests to `main`, a weekly schedule, and manual dispatch. Dependency review runs on pull requests.
+Continuous integration runs the check, the tests, and the build for pushes to `main`, pull requests, and manual dispatch. It runs them on six Node and npm combinations, and each combination enforces the dependency engine ranges during the install. The Node 24.15.0 job with the latest npm 12 uploads the bundle as a build artifact. CodeQL runs on pushes to `main`, pull requests to `main`, a weekly schedule, and manual dispatch. Dependency review runs on pull requests.
 
 ## 15. Extension Recipes
 
@@ -739,7 +739,7 @@ Follow the recipe in section 13. Add the file to `tests/`. No configuration chan
 - The app has no import or export for character cards. A library cannot move between browser profiles.
 - The database connection stays open for the lifetime of the page. `CharacterLibrary.dispose` closes it after the operation chain drains, which is correct for a single-page app. A future schema change in another tab waits for the reload.
 - Same-page ordering only. The library does not synchronize with another tab that writes the same database.
-- The repository has no linter and no formatter. Continuous integration runs `npm run check`, `npm test`, and `npm run build`. Run the same commands by hand before you push.
+- The repository has no linter and no formatter. Continuous integration runs `npm run check`, `npm test`, and `npm run build` on six Node and npm combinations. Run the same commands by hand before you push.
 - `--color-bg-card` is declared but unused.
 
 ## 18. Documentation Map
