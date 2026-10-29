@@ -101,46 +101,6 @@ jobs:
       - name: Build the production bundle
         run: npm run build
 
-  runtime-node-26-0-0-npm-12:
-    name: runtime (node 26.0.0, npm latest 12)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # PROBE: a failing step masked by continue-on-error.
-    continue-on-error: true
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js 26.0.0
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26.0.0
-          cache: npm
-
-      # Node 26.0.0 bundles npm 11, so CI selects npm 12 explicitly.
-      - name: Select the latest npm 12
-        run: npm install -g "npm@^12"
-
-      - name: Record the resolved Node.js and npm versions
-        run: node -v && npm -v
-
-      - name: Install dependencies
-        run: npm ci
-        env:
-          npm_config_engine_strict: "true"
-
-      - name: Type-check
-        run: npm run check
-
-      - name: Run the test suite
-        run: npm test
-
-      - name: Build the production bundle
-        run: npm run build
-      - name: PROBE masked failure
-        run: exit 1
-
-
   runtime-node-26-latest-npm-12:
     name: runtime (node 26.x latest, npm latest 12)
     runs-on: ubuntu-latest
