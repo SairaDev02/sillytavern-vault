@@ -1,0 +1,46 @@
+name: Gate
+
+# A pull request controls its own workflow file, and GitHub reports a skipped
+# required job as a success. A required job inside the pull request's workflow
+# therefore cannot prove that the required work ran. GitHub always runs a
+# `workflow_run` workflow from the default branch, so a pull request cannot
+# skip, weaken, or rewrite this verifier. The verifier reads the conclusions of
+# the triggering run's jobs and steps, then publishes the required check on the
+# pull request head commit. See docs/branch-gate.md.
+on:
+  workflow_run:
+    workflows: [CI, CodeQL, Dependency review]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: read
+
+jobs:
+  verify:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: gate-${{ github.event.workflow_run.head_sha }}-${{ github.event.workflow_run.name }}
+      cancel-in-progress: false
+    steps:
+      # Do not set `ref:`. The default ref of a `workflow_run` run is the
+      # default branch. That default is the trust anchor: the code that decides
+      # the gate always comes from the default branch, never from the pull
+      # request under test.
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No `cache` input: the verifier must not read the pull request lockfile.
+      - name: Set up Node.js 26.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.x
+
+      - name: Verify the triggering run
+        run: node scripts/ci-gate.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
