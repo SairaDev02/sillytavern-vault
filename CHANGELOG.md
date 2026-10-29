@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The supported toolchain is Node `^24.15.0 || ^26.0.0` with npm `^12.0.0`, and
+  Node 26 is the preferred local version. CI runs six Node and npm combinations,
+  each with the locked install, type check, tests, and production build.
+- Changes reach `main` through a pull request that satisfies the required status
+  checks, the CodeQL findings threshold, and the dependency review. See
+  `docs/branch-gate.md`.
+
 ### Fixed
 
 - The Character form now honors the latest explicit image choice. A slower read
