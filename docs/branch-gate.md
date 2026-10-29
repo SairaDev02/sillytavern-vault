@@ -61,9 +61,12 @@ row 1 of section 8 records the readback that established this rule.
 `.github/required-contexts.json` is the single source for the job names that
 each gate check requires. The ruleset payload lists the contexts that the branch
 rule enforces, and `tests/ci-gate.test.mjs` fails when the three sources
-disagree: the job names in `ci.yml`, the entries in `required-contexts.json`, and
-the contexts in `main-merge-gate.json`. Change a job name in one place, and that
-test names the others.
+disagree: the job display names in `ci.yml`, `codeql.yml`, and
+`dependency-review.yml`; the entries in `required-contexts.json`; and the contexts
+in `main-merge-gate.json`. Change a job name in one place, and that test names the
+others. It compares names as text, so a rename that leaves the old name in a
+comment still passes. Treat the test as a trip wire, and read the real names back
+from a pull request as section 7 step 2 says.
 
 ## 3. The fail-closed transport
 
@@ -331,11 +334,11 @@ A row records one observation. The rollout of 2026-10-29 appears below.
 | 2026-10-29 | `sillytavern-vault@main` | Rulesets `main-protection` id 26121627 and `main-merge-gate` id 26121638 | The payloads from this repository | `main-protection`: `deletion`, `non_fast_forward`, no bypass actor, `current_user_can_bypass` `never`. `main-merge-gate`: `pull_request`, `required_status_checks` with eleven contexts, `code_scanning` CodeQL `high_or_higher` and `none`, bypass `RepositoryRole` 5 `pull_request`, `current_user_can_bypass` `pull_requests_only` | readback only |
 | 2026-10-29 | PR #53 `e8b30db`, the `Gate` workflow disabled | The safeguard's own absence | Merge blocked with every leaf check green | Eight leaf checks `success`, no `gate (...)` check on the commit, merge `BLOCKED` | live PR |
 | 2026-10-29 | PR #53 `ebc403d`, the `Gate` workflow re-enabled | Partial reporting by the safeguard | Blocked until the last gate check reports | `gate (CI)` and `gate (Dependency review)` `success` while `gate (CodeQL)` was still absent: merge `BLOCKED`. With all three: `CLEAN` | live PR |
-| 2026-10-29 | `sillytavern-vault@40875186545` and the merged `main` run | The `dist` artifact | Still produced, same contents and retention | Artifact `dist`, 38618 bytes, retention 7 days (`expires_at` seven days after creation), on both the pull request run and the `main` push run | live PR |
+| 2026-10-29 | `sillytavern-vault@40875186545` and the merged `main` run | The `dist` artifact | Still produced, with the same name, path, and retention | Artifact `dist`, path `dist/`, 38618 bytes on both runs, retention 7 days (`expires_at` seven days after creation). The bytes were not compared, so identical contents are not claimed | live PR |
 | 2026-10-29 | Windows 11, node v24.15.0 with npm 12.2.1 | The launcher at the Node 24 floor | Builds and serves, HTTP 200 | `node scripts/start.mjs --force --no-open` built the bundle and served HTTP 200 on `localhost` and `[::1]` | live local |
 | 2026-10-29 | Windows 11, node v26.0.0 with npm 12.2.1 | The launcher at the Node 26 floor | Builds and serves, HTTP 200 | The same result as the Node 24 floor | live local |
-| 2026-10-29 | npm 12.2.0, a package outside the repository | An unapproved install script | Blocked and warned, install still exits 0 | `npm warn install-scripts 1 package had install scripts blocked because they are not covered by allowScripts: esbuild@0.25.12 (postinstall: node install.js)`; no failure | live local |
-| 2026-10-29 | The repository install | The approved build dependency | The version-specific approval still runs the script | `allowScripts.esbuild@0.25.12` approved it; `node_modules/@esbuild/win32-x64/esbuild.exe` is present and reports 0.25.12. A bump to another version needs a new approval in the same pull request | live local |
+| 2026-10-29 | npm 12.2.0, a package outside the repository | An unapproved install script | Blocked and warned, and the install does not fail | `npm install` exit code **0**, measured directly rather than through a pipeline; four `npm warn install-scripts` lines; `npm install-scripts ls` reports `1 package has install scripts blocked because they are not covered by allowScripts: esbuild@0.25.12 (postinstall: node install.js)` | live local |
+| 2026-10-29 | The repository install, npm 12.2.0 | The approved build dependency | The version-specific approval allows the script, and the script really runs | `npm install-scripts ls` reports `No packages with unreviewed install scripts`; `npm ci --foreground-scripts` prints `npm notice run esbuild@0.25.12 postinstall` and `npm notice run node install.js`, which is lifecycle execution rather than a present binary; `npm ci` exit code **0**, measured directly. A bump to another version would no longer match `allowScripts.esbuild@0.25.12` | live local |
 
 ### 8.1 What the log does not prove
 
