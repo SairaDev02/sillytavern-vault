@@ -14,7 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { evaluateRun, loadExpectedContexts } from '../scripts/ci-gate.mjs';
+import { decideNoPullRequest, evaluateRun, loadExpectedContexts } from '../scripts/ci-gate.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join(ROOT, 'scripts', 'ci-gate.mjs');
@@ -308,6 +308,24 @@ async function tempContextsFile() {
   return path;
 }
 
+describe('decideNoPullRequest', () => {
+  it('stays silent for a push that has no pull request', () => {
+    expect(decideNoPullRequest({ event: 'push', pullNumbers: [] }).post).toBe(false);
+    expect(decideNoPullRequest({ event: 'push', pullNumbers: [null] }).post).toBe(false);
+  });
+
+  it('fails closed when a pull request run resolves to no pull request', () => {
+    const decision = decideNoPullRequest({ event: 'pull_request', pullNumbers: [null] });
+
+    expect(decision.post).toBe(true);
+    expect(decision.reason).toMatch(/fails closed/i);
+  });
+
+  it('does not post for a resolved pull request', () => {
+    expect(decideNoPullRequest({ event: 'pull_request', pullNumbers: [42] }).post).toBe(true);
+  });
+});
+
 describe('the repository required contexts', () => {
   it('lists the six CI jobs, the CodeQL job, and the dependency-review job', async () => {
     const parsed = JSON.parse(
@@ -321,6 +339,34 @@ describe('the repository required contexts', () => {
     expect(loadExpectedContexts(parsed, 'Dependency review')).toEqual([
       'review dependency changes',
     ]);
+  });
+
+  it('ties ci.yml, required-contexts.json, and the ruleset payload together', async () => {
+    const ci = await readFile(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const parsed = JSON.parse(
+      await readFile(join(ROOT, '.github', 'required-contexts.json'), 'utf8'),
+    );
+    const ruleset = JSON.parse(
+      await readFile(join(ROOT, '.github', 'rulesets', 'main-merge-gate.json'), 'utf8'),
+    );
+
+    const statusChecks = ruleset.rules.find((rule) => rule.type === 'required_status_checks');
+    const contexts = statusChecks.parameters.required_status_checks.map((entry) => entry.context);
+
+    // Every CI job the gate expects must exist in ci.yml under that exact name.
+    for (const name of loadExpectedContexts(parsed, 'CI')) {
+      expect(ci).toContain(`name: ${name}`);
+      expect(contexts).toContain(name);
+    }
+    // Every expected job of every workflow must be a required context.
+    for (const name of Object.values(parsed).flat()) expect(contexts).toContain(name);
+    // The three gate checks are required and named after their source workflow.
+    for (const workflow of Object.keys(parsed)) expect(contexts).toContain(`gate (${workflow})`);
+    // Every required context must come from the GitHub Actions app.
+    for (const entry of statusChecks.parameters.required_status_checks) {
+      expect(entry.integration_id).toBe(15368);
+    }
+    expect(contexts).toHaveLength(11);
   });
 
   it('does not repeat a job name across workflows', async () => {

@@ -32,14 +32,14 @@
       "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "CI / runtime (node 24.15.0, npm latest 12)", "integration_id": 15368 },
-          { "context": "CI / runtime (node 24.x latest, npm latest 12)", "integration_id": 15368 },
-          { "context": "CI / runtime (node 26.0.0, npm latest 12)", "integration_id": 15368 },
-          { "context": "CI / runtime (node 26.x latest, npm latest 12)", "integration_id": 15368 },
-          { "context": "CI / runtime (node 24.15.0, npm 12.0.0)", "integration_id": 15368 },
-          { "context": "CI / runtime (node 26.0.0, npm 12.0.0)", "integration_id": 15368 },
-          { "context": "CodeQL / analyze javascript-typescript", "integration_id": 15368 },
-          { "context": "Dependency review / review dependency changes", "integration_id": 15368 },
+          { "context": "runtime (node 24.15.0, npm latest 12)", "integration_id": 15368 },
+          { "context": "runtime (node 24.x latest, npm latest 12)", "integration_id": 15368 },
+          { "context": "runtime (node 26.0.0, npm latest 12)", "integration_id": 15368 },
+          { "context": "runtime (node 26.x latest, npm latest 12)", "integration_id": 15368 },
+          { "context": "runtime (node 24.15.0, npm 12.0.0)", "integration_id": 15368 },
+          { "context": "runtime (node 26.0.0, npm 12.0.0)", "integration_id": 15368 },
+          { "context": "analyze javascript-typescript", "integration_id": 15368 },
+          { "context": "review dependency changes", "integration_id": 15368 },
           { "context": "gate (CI)", "integration_id": 15368 },
           { "context": "gate (CodeQL)", "integration_id": 15368 },
           { "context": "gate (Dependency review)", "integration_id": 15368 }
