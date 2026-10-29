@@ -1,0 +1,62 @@
+{
+  "name": "main-merge-gate",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "pull_request"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          { "context": "CI / runtime (node 24.15.0, npm latest 12)", "integration_id": 15368 },
+          { "context": "CI / runtime (node 24.x latest, npm latest 12)", "integration_id": 15368 },
+          { "context": "CI / runtime (node 26.0.0, npm latest 12)", "integration_id": 15368 },
+          { "context": "CI / runtime (node 26.x latest, npm latest 12)", "integration_id": 15368 },
+          { "context": "CI / runtime (node 24.15.0, npm 12.0.0)", "integration_id": 15368 },
+          { "context": "CI / runtime (node 26.0.0, npm 12.0.0)", "integration_id": 15368 },
+          { "context": "CodeQL / analyze javascript-typescript", "integration_id": 15368 },
+          { "context": "Dependency review / review dependency changes", "integration_id": 15368 },
+          { "context": "gate (CI)", "integration_id": 15368 },
+          { "context": "gate (CodeQL)", "integration_id": 15368 },
+          { "context": "gate (Dependency review)", "integration_id": 15368 }
+        ]
+      }
+    },
+    {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          {
+            "tool": "CodeQL",
+            "security_alerts_threshold": "high_or_higher",
+            "alerts_threshold": "none"
+          }
+        ]
+      }
+    }
+  ]
+}
