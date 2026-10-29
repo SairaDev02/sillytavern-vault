@@ -1,0 +1,12 @@
+{
+  "CI": [
+    "runtime (node 24.15.0, npm latest 12)",
+    "runtime (node 24.x latest, npm latest 12)",
+    "runtime (node 26.0.0, npm latest 12)",
+    "runtime (node 26.x latest, npm latest 12)",
+    "runtime (node 24.15.0, npm 12.0.0)",
+    "runtime (node 26.0.0, npm 12.0.0)"
+  ],
+  "CodeQL": ["analyze javascript-typescript"],
+  "Dependency review": ["review dependency changes"]
+}
