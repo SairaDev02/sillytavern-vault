@@ -12,6 +12,8 @@ The app has no backend. It has no runtime dependencies. All entries in `devDepen
 
 ## 2. Quick Start
 
+<!-- probe-stale-A -->
+
 Requirements: Node.js `^24.15.0 || ^26.0.0` and npm `^12.0.0`. `package.json` declares both ranges, and `package-lock.json` repeats them at the root of the lockfile. Node 26 is the preferred version for local development, and `.nvmrc` selects it. Node.js runs the local tools and the launcher. The built app is static files. No local install step and no launcher rejects an unsupported version. See the [README requirements](../README.md#requirements) for the full statement.
 
 | Command | Action |
