@@ -171,7 +171,7 @@ Exact UI wording, layout, and internal implementation are not part of the
 contract. A renamed label, a changed color, a moved button, or a refactored
 module is not a breaking change by itself.
 
-Node 22 support belongs to the tagged 1.0.0 release. The current toolchain no
+The tagged 1.0.0 release supported Node 22. The current toolchain no
 longer supports Node 22, so a stable release that contains that removal needs a
 major increment.
 
@@ -179,10 +179,9 @@ The privacy and accessibility commitments do not change with a release. Nothing
 is uploaded, there is no telemetry, and the documented keyboard and focus
 behavior stays in place.
 
-For the release procedure, the full compatibility statement, and the security
-support policy, read
-[section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract)
-and [`SECURITY.md`](SECURITY.md).
+For the release procedure and the maintainer view of this contract, read
+[section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract).
+The security support policy is in [`SECURITY.md`](SECURITY.md).
 
 ## Project structure
 
