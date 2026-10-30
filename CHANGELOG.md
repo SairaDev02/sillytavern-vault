@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changes reach `main` through a pull request that satisfies the required status
   checks, the CodeQL findings threshold, and the dependency review. See
   `docs/branch-gate.md`.
+- Contributor and agent guidance now share one documentation update contract,
+  which the [Documentation Map](docs/WIKI.md#18-documentation-map) states. A
+  noteworthy user-facing, setup or toolchain, or maintainer-policy change
+  records its impact in `Unreleased` in the same pull request. A routine
+  refactor, a dependency bump, or a test-only change needs an entry only when
+  its impact is noteworthy. A document whose audience-relevant statements change
+  or become inaccurate is updated in that pull request. Historical release
+  entries and accepted architecture decisions are preserved.
 
 ### Fixed
 

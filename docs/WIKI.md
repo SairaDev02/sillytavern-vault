@@ -72,7 +72,7 @@ graph TD
 Rules of the design:
 
 - `character-library.svelte.ts` owns the database connection and the canonical `characters` list. It is the only writer of Character records. `App.svelte` reads the list and renders it. It never builds a record, preserves a creation time, or reloads the library after a save.
-- `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the selected character.
+- `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the identity of the open Character. It keeps `selectedId` as state and derives the open Character from the canonical list, so the dialog never shows a copy that can go stale.
 - Child components receive data and callbacks through props. They never import the database.
 - The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts`, `character-library.svelte.ts`, and `download-attempts.svelte.ts` are stateful modules; one `SelectedImage` belongs to one form draft, and one `CharacterLibrary` and one `DownloadAttempts` belong to one page lifetime.
 - `Gallery.svelte` and `Lightbox.svelte` do not download anything themselves. Each reports the Character the user asked to download through `onDownload`, so the page keeps the attempt and its notice when the Gallery is torn down.
@@ -398,9 +398,11 @@ The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or
 
 Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`, `onDownload`, `notice`, `onLightboxChange`.
 
-State: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
+State: `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
 
-Derived: `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
+Derived: `selectedCharacter`, `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
+
+`selectedId` holds the identity of the open Character. `selectedCharacter` looks that id up in `characters` on every change, so a published edit reaches the dialog and a deleted record closes it. Keep the two separate: a stored copy of the Character would not follow a later change.
 
 `onLightboxChange` reports whether a dialog is open, because the page decides where its one download notice is presented. A Gallery that is torn down reports the dialog closed, so the page never keeps a notice it has nowhere to show.
 
@@ -497,7 +499,7 @@ Behavior:
 
 **Paging.** The observer adds 24 records when the sentinel becomes visible. The count stops at the length of the filtered list, so the app never asks for a page that does not exist.
 
-**Lightbox navigation.** The arrows change `selectedCharacter` through `onSelect`. The dialog stays open and shows the new record.
+**Lightbox navigation.** The arrows report the neighboring Character id through `onSelect`, and `Gallery` stores it in `selectedId`. The derived `selectedCharacter` then resolves to that record, so the dialog stays open and shows it.
 
 **Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
@@ -746,6 +748,8 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 
 ## 18. Documentation Map
 
+This map is the single authority for documentation updates. Start here before you open a pull request.
+
 | Document | Audience | Update when |
 |---|---|---|
 | `docs/WIKI.md` | Developers | A module, a flow, or a convention changes. |
@@ -756,6 +760,14 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 | `docs/ASD-STE100-LLM-Writing-Rules.md` | Writers | Rarely. It is the style reference for the other documents. |
 | `README.md` | Users and newcomers | The features, the setup steps, or the command line changes. |
 | `CONTRIBUTING.md` | Contributors | The checks, the conventions, or the pull request process changes. |
-| `CHANGELOG.md` | Users | A release is prepared. Add the entries before you tag it. |
+| `CHANGELOG.md` | Users | A noteworthy change lands. Add its impact to `Unreleased` in the same pull request. |
 
-When you change the code, change the matching document in the same commit. The wiki described an old implementation for a long time, because nothing tied the two together.
+The table is not an inventory of every document. Other documents, such as `SECURITY.md` and the guidance in `docs/agents/`, follow the same rule.
+
+The update rule:
+
+1. Add the impact of a noteworthy user-facing, setup or toolchain, or maintainer-policy change to `Unreleased` in the same pull request.
+2. Update each document whose audience-relevant capabilities change, or whose statements would become inaccurate, in that same pull request. This includes applicable documents that the table does not list.
+3. Do not update every document for every pull request. An exhaustive document inventory is not required.
+4. Add a changelog entry for a routine refactor, a dependency bump, or a test-only change only when its impact is noteworthy.
+5. Keep historical release entries and accepted architecture decisions as they are. A later accepted decision that changes an architecture decision must supersede it explicitly.

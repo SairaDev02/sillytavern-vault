@@ -4,7 +4,7 @@ Purpose: machine-readable orientation for this repository. Read this file before
 Audience: a coding agent that will modify the code. Optimized for retrieval, not for prose.
 Companion documents: `docs/WIKI.md` (narrative, developer-facing), `docs/designMasonry.md` (layout rationale).
 
-Facts below are verified against the current `HEAD`. When this file and the code disagree, the code wins. Update this file in the same commit as the code.
+Facts below are verified against the current `HEAD`. When this file and the code disagree, the code wins. Update this file in the same pull request as the code, as the [Documentation Map](WIKI.md#18-documentation-map) requires.
 
 ---
 
@@ -23,10 +23,10 @@ npm run build          # vite build -> dist/ (does NOT type-check)
 
 Definition of done for a code change:
 
-1. `npm test` passes (214 tests, 14 files at the time of writing).
+1. `npm test` passes.
 2. `npm run check` reports `0 errors and 0 warnings`.
 3. `npm run build` succeeds.
-4. The matching document is updated.
+4. The applicable documents are updated, per the [Documentation Map](WIKI.md#18-documentation-map).
 
 There is no local linter or formatter: run the three commands above by hand. CI (`.github/workflows/ci.yml`) runs the same three commands for pushes to `main`, pull requests, and manual dispatch. It tests six Node and npm combinations. Four use the latest npm 12: Node 24.15.0, the latest 24.x, 26.0.0, and the latest 26.x. Two use npm 12.0.0: Node 24.15.0 and 26.0.0. Each combination enforces the dependency engine ranges during the install. See `CONTRIBUTING.md` for the merge expectations. `git log --oneline` messages record why the current code is shaped the way it is; read them before "simplifying" odd-looking code.
 
@@ -229,7 +229,7 @@ State ownership (one owner per item; do not duplicate it):
 | `CharacterLibrary` (internal) | operation chain, repair attempt keys, per-record image generations, database connection, lifetime counter | Private. Never assert on these in tests; observe the public state and the storage. |
 | `App` | `editingCharacter`, `showForm`, `deleteNotice`, `lightboxOpen`, the focused heading, one library instance, one download owner | Presentation and navigation only. `lightboxOpen` comes from `Gallery`, so the page never assumes a dialog it cannot see. |
 | `DownloadAttempts` | attempt and applied counters per Character, `notice` | Pending attempts and the notice survive Gallery teardown, so a failure can still reach the page while the form is open. |
-| `Gallery` | `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState` | View state. It also reports the dialog state upward. |
+| `Gallery` | `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `selectedCharacter`, `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState` | View state. `selectedId` holds the open Character's identity, and `selectedCharacter` is derived from the canonical list. It also reports the dialog state upward. |
 | `Lightbox` | `dialogEl` (`$state`), `triggerButton`, `toreDown`, `failed` (Character id plus source); derived `index`, `hasPrevious`, `hasNext`, `imageUnavailable` | Dialog, focus, and the displayed image's failure. |
 | `CharacterForm` | `name`, `description`, `saving`, `saveError`, one `SelectedImage` | Draft and save locking. |
 
@@ -258,7 +258,7 @@ MUST hold after any change.
 13. `PAGE_SIZE` lives in `src/gallery-utils.ts`. Do not re-hard-code 24.
 14. `visibleCount` resets to `PAGE_SIZE` on a search or sort change.
 15. `Gallery.sentinelEl` stays `$state`. The `$effect` must read it so the observer attaches to the live element and disconnects from a replaced one. See `tests/gallery-scroll.test.ts`.
-16. `Lightbox` teardown runs only from the dialog `close` event. Do not close from a keydown handler or the DOM and the parent state can diverge.
+16. `Lightbox` teardown runs from the dialog `close` event, which covers Escape, and from the direct `teardown` call in `requestClose` when the dialog is unavailable or not open. Do not close from a keydown handler or the DOM and the parent state can diverge. See `src/components/Lightbox.svelte`.
 17. Every DB write promise rejects on `error` and on `abort`. A pending-forever promise is a bug.
 18. `downloadCharacterImage` always emits PNG and always runs the name through `sanitizeFilename`. The object URL is released ~60 s after the click, not immediately.
 19. Reduced motion (`prefers-reduced-motion`) gates durations and `transform`. It MUST NOT gate the visibility of a control (the hover label and the download button stay reachable).
