@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changes reach `main` through a pull request that satisfies the required status
   checks, the CodeQL findings threshold, and the dependency review. See
   `docs/branch-gate.md`.
+- The release identity and the public compatibility policy are documented. A
+  released checkout is identified by its annotated tag or commit, not by the
+  version field. `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, and
+  `docs/WIKI.md` section 19 state the Semantic Versioning mapping, the
+  compatibility boundary and its limits, and the release procedure.
 - Contributor and agent guidance now share one documentation update contract,
   which the [Documentation Map](docs/WIKI.md#18-documentation-map) states. A
   noteworthy user-facing, setup or toolchain, or maintainer-policy change

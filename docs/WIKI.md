@@ -771,3 +771,85 @@ The update rule:
 3. Do not update every document for every pull request. An exhaustive document inventory is not required.
 4. Add a changelog entry for a routine refactor, a dependency bump, or a test-only change only when its impact is noteworthy.
 5. Keep historical release entries and accepted architecture decisions as they are. A later accepted decision that changes an architecture decision must supersede it explicitly.
+
+## 19. Releases and the public contract
+
+This section defines the release procedure and the promise that a stable release makes. It does not describe the current state of `main`. Read the tag and `CHANGELOG.md` for that state.
+
+### Release identity
+
+Three different things can carry the name of a release. Keep them apart.
+
+- **The tag object.** An annotated `vX.Y.Z` tag is a Git object. It has its own SHA, a tagger, a date, and a message. It points to one commit. `git rev-parse v1.0.0` prints the tag object. `git rev-parse v1.0.0^{commit}` prints the commit that it points to.
+- **The GitHub Release.** A Release is an optional GitHub object that attaches notes and assets to a tag. GitHub answers a page at `/releases/tag/<tag>` for every tag, with or without a Release object. A tag page is therefore not evidence of a Release.
+- **The branch.** `main` moves. It can keep the version `1.0.0` in `package.json` and also contain later changes under `Unreleased`. The version field is not an identifier of the tagged revision.
+
+Identify a released checkout by its tag or by its commit SHA. At the time of writing, on 2026-10-30, `v1.0.0` is an annotated tag on commit `fd698c6d7c4ec2a240eb3f9ef3740acf7a2fda08`, with tag object `b43cf91b7c90cbfb1dc9f250d982f7fe18895a20`. The Releases API returned zero Release objects. The tag page answered HTTP 200. These are readbacks of that moment, not a permanent guarantee.
+
+### Stable release procedure
+
+Do these steps in this order.
+
+1. Confirm the gate. Run `npm run check`, `npm test`, and `npm run build` on the commit to release, and let continuous integration pass on that commit.
+2. Set the version in `package.json`, and set the same value in the root `version` field of `package-lock.json`. A normal `npm install` or `npm version` updates the lockfile root. Do not edit a dependency entry.
+3. Add a dated section to `CHANGELOG.md`, for example `## [1.1.0] - 2026-11-14`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
+4. Commit the version change and the changelog change.
+5. Create an annotated tag on that commit: `git tag -a vX.Y.Z -m "<message>"`. Put the highlights and the sentence that points readers to `CHANGELOG.md` in the message.
+6. Push the commit first, then push the tag.
+7. Optionally create a GitHub Release from the tag. Point the body at the dated changelog section, and add highlights only.
+
+Keep these rules while you do the steps.
+
+- The dated changelog section is the authoritative release notes. One copy exists.
+- The tag annotation and any GitHub Release point to that section. They may carry highlights. They need not repeat the full notes.
+- The package manifest, the lockfile root metadata, and the dated section agree on one version.
+- Released contents are immutable. Do not move or delete a published tag, rewrite a dated section, or publish a Release that describes other contents.
+- No release automation is required. The steps are manual by design, because a release is rare and each step is a decision.
+
+### Semantic Versioning
+
+The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
+
+| Change | Increment |
+|---|---|
+| A backward-compatible fix | patch |
+| A backward-compatible addition or a deprecation | minor |
+| An incompatible change to the public contract | major |
+
+### The public contract
+
+A stable release covers three areas.
+
+- **Character library access.** A valid existing Character library stays accessible, with no data loss caused by the application, after a normal upgrade on the same origin. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
+- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image export.
+- **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
+
+The data promise excludes four cases. It does not cover data that was already corrupt, a failure of browser storage outside the application, a cleared site-data store, or a change of origin. The exclusions do not excuse loss caused by the application's own upgrade logic.
+
+The promise does not create a permanent direct-migration path from every historical version. A record that an old version wrote in a form that the current code cannot read is not covered by an upgrade promise that no decision has made.
+
+Exact UI wording, layout, and internal implementation are not part of the contract. A renamed label, a changed color, a moved button, or a refactored module is not a breaking change by itself.
+
+### The Node 22 consequence
+
+The tagged 1.0.0 release documented Node 22 support. The approved current toolchain does not support Node 22. The supported-toolchain part of the contract therefore treats that removal as an incompatible change. A stable release that contains the removal needs a major increment.
+
+This section records the consequence only. It does not choose the next version, and it does not reopen the toolchain decision.
+
+### Security support and credit
+
+`SECURITY.md` is the authority for the supported lines. The 1.0.x line is supported.
+
+- A compatible fix for a supported line is a patch release.
+- An incompatible fix for a supported line needs an explicit release and support decision before publication. Do not publish it as an incompatible patch.
+- A later major release does not end support for an older line by itself. Ending that support needs a separate, recorded decision.
+- Credit the reporter in the release notes unless the reporter asks for anonymity.
+- This section sets no end-of-support date and no maintenance-branch workflow.
+
+### What this procedure does not decide
+
+- The next version number, and the version of any future stable release.
+- An end-of-support date for any line, and a maintenance-branch workflow.
+- A migration policy for a library that a historical version wrote in a form that the current code cannot read.
+- Release automation or a new continuous-integration gate.
+- A change to the privacy or accessibility commitments. `SECURITY.md` and section 12 remain in force.

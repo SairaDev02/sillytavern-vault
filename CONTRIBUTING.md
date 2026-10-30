@@ -124,6 +124,34 @@ verification evidence. Read it before you change anything in `.github/`.
 An agent needs human approval before it merges a change to required-check
 definitions or thresholds.
 
+### Releasing
+
+A stable release follows the procedure in
+[section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract).
+The short form:
+
+1. Run `npm run check`, `npm test`, and `npm run build` on the commit that you
+   intend to release, and let CI pass on that commit.
+2. Set the version in `package.json` and the same value in the root `version`
+   field of `package-lock.json`. A normal `npm install` updates the lockfile
+   root; do not edit a dependency entry by hand.
+3. Write the dated section in `CHANGELOG.md`. It is the authoritative release
+   notes.
+4. Create an annotated `vX.Y.Z` tag on the checked commit. Point the annotation
+   at the dated changelog section, and add highlights only if they help.
+5. Optionally create a GitHub Release from the tag. Point it at the same section
+   instead of copying the full notes.
+
+Released contents are immutable. Do not move or delete a published tag, do not
+rewrite a dated changelog section, and do not publish a GitHub Release that
+describes different contents. No release automation is required; the steps are
+manual on purpose.
+
+The version increment is not a matter of taste. The SemVer mapping and the
+compatibility boundary that decide it are in
+[section 19](docs/WIKI.md#19-releases-and-the-public-contract) and in the
+[README](README.md#releases-and-compatibility), not in this guide.
+
 ### Documentation style
 
 The developer documentation in `docs/` follows the plain-language rules in
