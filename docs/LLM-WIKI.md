@@ -4,7 +4,7 @@ Purpose: machine-readable orientation for this repository. Read this file before
 Audience: a coding agent that will modify the code. Optimized for retrieval, not for prose.
 Companion documents: `docs/WIKI.md` (narrative, developer-facing), `docs/designMasonry.md` (layout rationale).
 
-Facts below are verified against the current `HEAD`. When this file and the code disagree, the code wins. Update this file in the same pull request as the code, as the [Documentation Map](WIKI.md#18-documentation-map) requires.
+Facts below are verified against the current `HEAD`. When this file and the code disagree, the code wins. Update this file in the same pull request when a change affects the guide; the [Documentation Map](WIKI.md#18-documentation-map) states the detailed rule.
 
 ---
 

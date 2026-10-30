@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loading, readiness, and the failure are announced as status.
 - The Gallery tells an empty library from a search with no matches, and a search
   with no matches offers Clear search. Clear search keeps the sort order, the
-  selection, and the selection mode, and returns focus to the search field or to
-  the first card.
+  selection, and the selection mode. Browse returns focus to the search field;
+  selection mode returns it to the first card's checkbox, or to Cancel when
+  that checkbox is unavailable.
 - An image that cannot be displayed is replaced by "Image unavailable" inside
   the frame reserved for it, on the Gallery card and in the detail view. The card
   keeps the Character name and the checkbox state, and the detail view announces
