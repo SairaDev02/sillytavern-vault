@@ -7,6 +7,9 @@
 | 1.0.x | Yes |
 | < 1.0 | No |
 
+Support for the 1.0.x line is in force. A later major release does not end it by
+itself; ending that support needs a separate, recorded decision.
+
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security problem.**
@@ -31,8 +34,11 @@ Include what you can:
 - A proof of concept, if you have one.
 
 You can expect an acknowledgement within **7 days** and a status update within
-**30 days**. Fixes are released as a patch version, and you are credited in the
-release notes unless you ask to stay anonymous.
+**30 days**. You are credited in the release notes unless you ask to stay
+anonymous. A fix that stays compatible with the supported line is released as a
+patch version. A fix that would break compatibility for a supported line needs an
+explicit release and support decision before publication, so it does not ship as
+an incompatible patch.
 
 ## Scope
 
