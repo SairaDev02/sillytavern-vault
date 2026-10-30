@@ -790,10 +790,10 @@ Identify a released checkout by its tag or by its commit SHA. At the time of wri
 
 Do these steps in this order.
 
-1. Confirm the gate. Run `npm run check`, `npm test`, and `npm run build` on the commit to release, and let continuous integration pass on that commit.
-2. Set the version in `package.json`, and set the same value in the root `version` field of `package-lock.json`. A normal `npm install` or `npm version` updates the lockfile root. Do not edit a dependency entry.
-3. Add a dated section to `CHANGELOG.md`, in the form `## [X.Y.Z] - YYYY-MM-DD`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
-4. Commit the version change and the changelog change.
+1. Set the version in `package.json`, and set the same value in the root `version` field of `package-lock.json`. A normal `npm install` or `npm version` updates the lockfile root. Do not edit a dependency entry.
+2. Add a dated section to `CHANGELOG.md`, in the form `## [X.Y.Z] - YYYY-MM-DD`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
+3. Commit the version change and the changelog change.
+4. Confirm the gate on that commit. Run `npm run check`, `npm test`, and `npm run build`, and let continuous integration pass on it.
 5. Create an annotated tag on that commit: `git tag -a vX.Y.Z -m "<message>"`. Put the highlights and the sentence that points readers to `CHANGELOG.md` in the message.
 6. Push the commit first, then push the tag.
 7. Optionally create a GitHub Release from the tag. Point the body at the dated changelog section, and add highlights only.
