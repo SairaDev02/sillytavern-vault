@@ -774,7 +774,7 @@ The update rule:
 
 ## 19. Releases and the Public Contract
 
-This section defines the release procedure and the promise that a stable release makes. It does not describe the current state of `main`. Read the tag and `CHANGELOG.md` for that state.
+This section defines the release procedure and the maintainer view of the promise that a stable release makes. It does not describe the current state of `main`. Read the tag and `CHANGELOG.md` for that state.
 
 ### Release identity
 
@@ -844,6 +844,5 @@ This section records the consequence only. It does not choose the next version, 
 
 - The next version number, and the version of any future stable release.
 - An end-of-support date for any line, and a maintenance-branch workflow.
-- A migration policy for a library that a historical version wrote in a form that the current code cannot read.
 - Release automation or a new continuous-integration gate.
 - A change to the privacy or accessibility commitments. `SECURITY.md` and section 12 remain in force.
