@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In selection mode each Character exposes its selection through one native
   checkbox, and the card face toggles the same selection with a pointer or touch.
   The number selected is announced as status.
+- Contributor and agent guidance now share one documentation update contract,
+  which the [Documentation Map](docs/WIKI.md#18-documentation-map) states. A
+  noteworthy user-facing, setup or toolchain, or maintainer-policy change
+  records its impact in `Unreleased` in the same pull request. A routine
+  refactor, a dependency bump, or a test-only change needs an entry only when
+  its impact is noteworthy. A document whose audience-relevant statements change
+  or become inaccurate is updated in that pull request. Historical release
+  entries and accepted architecture decisions are preserved.
 
 ### Fixed
 

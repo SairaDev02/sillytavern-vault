@@ -32,8 +32,8 @@ Closes #
 - [ ] `npm run check` passes.
 - [ ] `npm test` passes, and I added or updated tests for the behavior change.
 - [ ] `npm run build` passes.
-- [ ] I updated the README and `docs/WIKI.md` if the change affects setup, the
-      command line, or the architecture.
+- [ ] I assessed the applicable documents and `Unreleased` against the
+      [Documentation Map](https://github.com/SairaDev02/sillytavern-vault/blob/main/docs/WIKI.md#18-documentation-map).
 - [ ] This adds no runtime dependency, or I explain the exception above.
 - [ ] No user data leaves the browser, and no network request was added.
 - [ ] Commits follow Conventional Commits, and fixups are squashed.

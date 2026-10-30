@@ -44,9 +44,10 @@ npm test        # Vitest suite
 npm run build   # production build
 ```
 
-If you changed behavior, add or update tests in `tests/`. If you changed the
-command line, the setup steps, or the architecture, update the README and
-`docs/WIKI.md` in the same pull request.
+If you changed behavior, add or update tests in `tests/`. For documentation and
+`CHANGELOG.md`, follow the update rule in the
+[Documentation Map](docs/WIKI.md#18-documentation-map). It says which documents
+to update, and when a noteworthy change needs an `Unreleased` entry.
 
 These three commands are the local gate, and they are the only commands CI runs
 for application verification. CI runs them on six Node and npm combinations, and
