@@ -458,7 +458,7 @@ The displayed image sits in a frame whose aspect ratio comes from `src/image-fra
 
 The notice snippet is the page's download notice, which the dialog renders inside its own content beside the Download action. The dialog does not own the notice and does not close or focus for it.
 
-The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent: it restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`, which clears `selectedCharacter` in `Gallery`. Keep both routes coordinated through this one teardown function.
+The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent: it restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`, which clears `selectedId` in `Gallery`, so the derived `selectedCharacter` becomes null. Keep both routes coordinated through this one teardown function.
 
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
 
