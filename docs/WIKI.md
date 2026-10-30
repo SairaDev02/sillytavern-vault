@@ -72,7 +72,7 @@ graph TD
 Rules of the design:
 
 - `character-library.svelte.ts` owns the database connection and the canonical `characters` list. It is the only writer of Character records. `App.svelte` reads the list and renders it. It never builds a record, preserves a creation time, or reloads the library after a save.
-- `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the selected character.
+- `Gallery.svelte` owns everything about the view: search, sort, paging, selection, and the identity of the open Character. It keeps `selectedId` as state and derives the open Character from the canonical list, so the dialog never shows a copy that can go stale.
 - Child components receive data and callbacks through props. They never import the database.
 - The pure helpers (`gallery-utils.ts`, `download.ts`, `id.ts`, `image.ts`) hold no component state. `selected-image.svelte.ts`, `character-library.svelte.ts`, and `download-attempts.svelte.ts` are stateful modules; one `SelectedImage` belongs to one form draft, and one `CharacterLibrary` and one `DownloadAttempts` belong to one page lifetime.
 - `Gallery.svelte` and `Lightbox.svelte` do not download anything themselves. Each reports the Character the user asked to download through `onDownload`, so the page keeps the attempt and its notice when the Gallery is torn down.
@@ -398,9 +398,11 @@ The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or
 
 Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`, `onDownload`, `notice`, `onLightboxChange`.
 
-State: `searchTerm`, `sortMode`, `selectedCharacter`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
+State: `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
 
-Derived: `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
+Derived: `selectedCharacter`, `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
+
+`selectedId` holds the identity of the open Character. `selectedCharacter` looks that id up in `characters` on every change, so a published edit reaches the dialog and a deleted record closes it. Keep the two separate: a stored copy of the Character would not follow a later change.
 
 `onLightboxChange` reports whether a dialog is open, because the page decides where its one download notice is presented. A Gallery that is torn down reports the dialog closed, so the page never keeps a notice it has nowhere to show.
 
@@ -456,7 +458,7 @@ The displayed image sits in a frame whose aspect ratio comes from `src/image-fra
 
 The notice snippet is the page's download notice, which the dialog renders inside its own content beside the Download action. The dialog does not own the notice and does not close or focus for it.
 
-The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent: it restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`, which clears `selectedCharacter` in `Gallery`. Keep both routes coordinated through this one teardown function.
+The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent. It restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`. That call clears `selectedId` in `Gallery`, so the derived `selectedCharacter` becomes null. Keep both routes coordinated through this one teardown function.
 
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
 
@@ -497,7 +499,7 @@ Behavior:
 
 **Paging.** The observer adds 24 records when the sentinel becomes visible. The count stops at the length of the filtered list, so the app never asks for a page that does not exist.
 
-**Lightbox navigation.** The arrows change `selectedCharacter` through `onSelect`. The dialog stays open and shows the new record.
+**Lightbox navigation.** The arrows report the neighboring Character id through `onSelect`, and `Gallery` stores it in `selectedId`. The derived `selectedCharacter` then resolves to that record, so the dialog stays open and shows it.
 
 **Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
@@ -746,6 +748,8 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 
 ## 18. Documentation Map
 
+This map is the single authority for documentation updates. Start here before you open a pull request.
+
 | Document | Audience | Update when |
 |---|---|---|
 | `docs/WIKI.md` | Developers | A module, a flow, or a convention changes. |
@@ -754,8 +758,91 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 | `docs/designMasonry.md` | Developers | The layout strategy or the animation model changes. |
 | `docs/adr/` | Developers | A decision that constrains future changes is settled. |
 | `docs/ASD-STE100-LLM-Writing-Rules.md` | Writers | Rarely. It is the style reference for the other documents. |
-| `README.md` | Users and newcomers | The features, the setup steps, or the command line changes. |
+| `README.md` | Users and newcomers | The features, the setup steps, the command line, or the release and compatibility statement changes. |
 | `CONTRIBUTING.md` | Contributors | The checks, the conventions, or the pull request process changes. |
-| `CHANGELOG.md` | Users | A release is prepared. Add the entries before you tag it. |
+| `CHANGELOG.md` | Users | A noteworthy user-facing, setup or toolchain, or maintainer-policy change lands. Add its impact to `Unreleased` in the same pull request. |
 
-When you change the code, change the matching document in the same commit. The wiki described an old implementation for a long time, because nothing tied the two together.
+The table is not an inventory of every document. Other documents, such as `SECURITY.md` and the guidance in `docs/agents/`, follow the same rule.
+
+The update rule:
+
+1. Add the impact of a noteworthy user-facing, setup or toolchain, or maintainer-policy change to `Unreleased` in the same pull request.
+2. Update each document whose audience-relevant capabilities change, or whose statements would become inaccurate, in that same pull request. This includes applicable documents that the table does not list.
+3. Do not update every document for every pull request. An exhaustive document inventory is not required.
+4. Add a changelog entry for a routine refactor, a dependency bump, or a test-only change only when its impact is noteworthy.
+5. Keep historical release entries and accepted architecture decisions as they are. A later accepted decision that changes an architecture decision must supersede it explicitly.
+
+## 19. Releases and the Public Contract
+
+This section defines the release procedure and the maintainer view of the promise that a stable release makes. It does not describe the current state of `main`. Read the tag and `CHANGELOG.md` for that state.
+
+### Release identity
+
+Three different things can carry the name of a release. Keep them apart.
+
+- **The tag object.** An annotated `vX.Y.Z` tag is a Git object. It has its own SHA, a tagger, a date, and a message. It points to one commit. `git rev-parse v1.0.0` prints the tag object. `git rev-parse v1.0.0^{commit}` prints the commit that it points to.
+- **The GitHub Release.** A Release is an optional GitHub object that attaches notes and assets to a tag. GitHub answers a page at `/releases/tag/<tag>` for every tag, with or without a Release object. A tag page is therefore not evidence of a Release.
+- **The branch.** `main` moves. It can keep the version `1.0.0` in `package.json` and also contain later changes under `Unreleased`. The version field is not an identifier of the tagged revision.
+
+Identify a released checkout by its tag or by its commit SHA. At the time of writing, on 2026-10-30, `v1.0.0` is an annotated tag on commit `fd698c6d7c4ec2a240eb3f9ef3740acf7a2fda08`, with tag object `b43cf91b7c90cbfb1dc9f250d982f7fe18895a20`. The Releases API returned zero Release objects. The tag page answered HTTP 200. These are readbacks of that moment, not a permanent guarantee.
+
+### Stable release procedure
+
+Do these steps in this order.
+
+1. Set the version in `package.json`, and set the same value in the root `version` field of `package-lock.json`. A normal `npm install` or `npm version` updates the lockfile root. Do not edit a dependency entry.
+2. Add a dated section to `CHANGELOG.md`, in the form `## [X.Y.Z] - YYYY-MM-DD`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
+3. Commit the version change and the changelog change.
+4. Confirm the gate on that commit. Run `npm run check`, `npm test`, and `npm run build`, and let continuous integration pass on it.
+5. Create an annotated tag on that commit: `git tag -a vX.Y.Z -m "<message>"`. Put the highlights and the sentence that points readers to `CHANGELOG.md` in the message.
+6. Push the commit first, then push the tag.
+7. Optionally create a GitHub Release from the tag. Point the body at the dated changelog section, and add highlights only.
+
+Keep these rules while you do the steps.
+
+- The dated changelog section is the authoritative release notes. One copy exists.
+- The tag annotation and any GitHub Release point to that section. They may carry highlights. They need not repeat the full notes.
+- The package manifest, the lockfile root metadata, and the dated section agree on one version.
+- Released contents are immutable. Do not move or delete a published tag, rewrite a dated section, or publish a Release that describes other contents.
+- No release automation is required. The steps are manual by design, because a release is rare and each step is a decision.
+
+### Semantic Versioning
+
+The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
+
+| Change | Increment |
+|---|---|
+| A backward-compatible fix | patch |
+| A backward-compatible addition or a deprecation | minor |
+| An incompatible change to the public contract | major |
+
+### The public contract
+
+A stable release covers three areas.
+
+- **Character library access.** A valid existing Character library stays accessible after a normal upgrade on the same origin. The application causes no data loss in that upgrade. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
+- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image export.
+- **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
+
+The data promise has limits. The [README](../README.md#the-limits-of-the-promise) gives the four excluded cases and states that they do not excuse loss caused by the application's own upgrade logic.
+
+The promise does not create a permanent direct-migration path from every historical version. No decision has been made about a library that a historical version wrote in a form that the current code cannot read.
+
+Exact UI wording, layout, and internal implementation are not part of the contract. A renamed label, a changed color, a moved button, or a refactored module is not a breaking change by itself.
+
+### The Node 22 consequence
+
+The tagged 1.0.0 release documented Node 22 support. The approved current toolchain does not support Node 22. The supported-toolchain part of the contract therefore treats that removal as an incompatible change. A stable release that contains the removal needs a major increment.
+
+This section records the consequence only. It does not choose the next version, and it does not reopen the toolchain decision.
+
+### Security support and credit
+
+`SECURITY.md` is the authority for the security support policy. It states the supported lines, patch releases, incompatible fixes, and the reporter credit. It also states that a later major release does not end support for an older line by itself. This section sets no end-of-support date and no maintenance-branch workflow.
+
+### What this procedure does not decide
+
+- The next version number, and the version of any future stable release.
+- An end-of-support date for any line, and a maintenance-branch workflow.
+- Release automation or a new continuous-integration gate.
+- A change to the privacy or accessibility commitments. `SECURITY.md` and section 12 remain in force.

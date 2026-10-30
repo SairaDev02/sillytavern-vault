@@ -112,6 +112,77 @@ Because the app is client-side only:
 - Export important images with the download button. That is the only backup path
   today.
 
+## Releases and compatibility
+
+Version 1.0.0 is the first tagged public release. Its dated entry in
+[`CHANGELOG.md`](CHANGELOG.md#100---2026-09-22) records what it contained, and
+that entry links to the
+[v1.0.0 tag page](https://github.com/SairaDev02/sillytavern-vault/releases/tag/v1.0.0).
+
+### Identify a release by its tag or commit
+
+A tag page is not a GitHub Release. The tag page shows a tagged revision and its
+annotation. A GitHub Release is a separate, optional object that GitHub attaches
+to a tag. This project created none for 1.0.0, and it does not create one after
+the fact. Do not read the tag page as proof that a Release exists.
+
+`main` can still show version 1.0.0 in `package.json` while it carries newer
+changes under `Unreleased`. The version field alone does not identify the tagged
+revision. Identify a released checkout by its tag or by its commit.
+
+The project follows
+[Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
+A backward-compatible fix is a patch release, and a backward-compatible addition
+or a deprecation is a minor release. An incompatible change to the public
+contract is a major release.
+
+A released version keeps its contents. A tag identifies the same contents for as
+long as it exists.
+
+### What a stable release promises
+
+The public contract of a stable release has three parts.
+
+- **Your library.** A valid existing Character library stays accessible, with no
+  data loss caused by the application, after a normal upgrade on the same
+  origin.
+- **The core capabilities.** These are saving and managing Characters, browsing,
+  searching and sorting, the detail view, batch deletion, and PNG image export,
+  as the [features](#features) describe them. A compatible release does not
+  remove a capability from this list.
+- **The supported toolchain.** A release's contract covers the Node and npm
+  combinations that the release states as supported.
+  [Requirements](#requirements) gives the current ranges.
+
+### The limits of the promise
+
+The data promise does not cover four cases:
+
+- Data that was already corrupt before the upgrade.
+- A failure of browser storage that the application does not cause.
+- Clearing site data.
+- A change of origin.
+
+These limits do not excuse data loss caused by the application's own upgrade
+logic. The promise also does not create a permanent direct-migration path from
+every historical version.
+
+Exact UI wording, layout, and internal implementation are not part of the
+contract. A renamed label, a changed color, a moved button, or a refactored
+module is not a breaking change by itself.
+
+The tagged 1.0.0 release supported Node 22. The current toolchain no
+longer supports Node 22, so a stable release that contains that removal needs a
+major increment.
+
+The privacy and accessibility commitments do not change with a release. Nothing
+is uploaded, there is no telemetry, and the documented keyboard and focus
+behavior stays in place.
+
+For the release procedure and the maintainer view of this contract, read
+[section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract).
+The security support policy is in [`SECURITY.md`](SECURITY.md).
+
 ## Project structure
 
 ```

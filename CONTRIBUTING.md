@@ -44,9 +44,10 @@ npm test        # Vitest suite
 npm run build   # production build
 ```
 
-If you changed behavior, add or update tests in `tests/`. If you changed the
-command line, the setup steps, or the architecture, update the README and
-`docs/WIKI.md` in the same pull request.
+If you changed behavior, add or update tests in `tests/`. For documentation and
+`CHANGELOG.md`, follow the update rule in the
+[Documentation Map](docs/WIKI.md#18-documentation-map). It says which documents
+to update, and when a noteworthy change needs an `Unreleased` entry.
 
 These three commands are the local gate, and they are the only commands CI runs
 for application verification. CI runs them on six Node and npm combinations, and
@@ -122,6 +123,29 @@ verification evidence. Read it before you change anything in `.github/`.
 
 An agent needs human approval before it merges a change to required-check
 definitions or thresholds.
+
+### Releasing
+
+A stable release follows the ordered steps in
+[section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract).
+Follow them there, and keep these invariants:
+
+- The package manifest, the lockfile root metadata, and the dated changelog
+  section carry the same version.
+- The dated section in `CHANGELOG.md` is the authoritative release notes. The tag
+  annotation and any GitHub Release point to that section, and they may carry
+  highlights.
+- The release has one annotated `vX.Y.Z` tag on the checked commit.
+- A GitHub Release is optional. When you create one, point it at the dated
+  section.
+- Released contents are immutable. Do not move or delete a published tag, do not
+  rewrite a dated section, and do not publish a release that describes other
+  contents.
+- No release automation is required. The steps are manual on purpose.
+
+The version increment is not a matter of taste. Section 19 alone is the
+authority for it: it states the Semantic Versioning mapping and the
+compatibility boundary that decide the increment.
 
 ### Documentation style
 
