@@ -131,13 +131,10 @@ changes under `Unreleased`. The version field alone does not identify the tagged
 revision. Identify a released checkout by its tag or by its commit.
 
 The project follows
-[Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html):
-
-| Change | Version increment |
-| --- | --- |
-| A backward-compatible fix | patch |
-| A backward-compatible addition or a deprecation | minor |
-| An incompatible change to the public contract | major |
+[Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
+A backward-compatible fix is a patch release, and a backward-compatible addition
+or a deprecation is a minor release. An incompatible change to the public
+contract is a major release.
 
 A released version keeps its contents. A tag identifies the same contents for as
 long as it exists.
@@ -153,8 +150,9 @@ The public contract of a stable release has three parts.
   searching and sorting, the detail view, batch deletion, and PNG image export,
   as the [features](#features) describe them. A compatible release does not
   remove a capability from this list.
-- **The supported toolchain.** The Node and npm combinations in
-  [Requirements](#requirements) belong to the contract of that release.
+- **The supported toolchain.** A release's contract covers the Node and npm
+  combinations that the release states as supported.
+  [Requirements](#requirements) gives the current ranges.
 
 ### The limits of the promise
 

@@ -35,9 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/branch-gate.md`.
 - The release identity and the public compatibility policy are documented. A
   released checkout is identified by its annotated tag or commit, not by the
-  version field. `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, and
-  `docs/WIKI.md` section 19 state the Semantic Versioning mapping, the
-  compatibility boundary and its limits, and the release procedure.
+  version field. `README.md` states the release identity and the user-facing
+  promise, `CONTRIBUTING.md` and `docs/WIKI.md` section 19 cover the release
+  procedure, and `SECURITY.md` states the support policy. Section 19 states the
+  full contract.
 - The search field and the sort control have persistent visible labels.
 - Muted text, placeholder text, and outlined control borders use a lighter step
   on the dark panels. Every focused control gets one shared outline, and a card

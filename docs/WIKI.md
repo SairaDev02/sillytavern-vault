@@ -458,7 +458,7 @@ The displayed image sits in a frame whose aspect ratio comes from `src/image-fra
 
 The notice snippet is the page's download notice, which the dialog renders inside its own content beside the Download action. The dialog does not own the notice and does not close or focus for it.
 
-The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent: it restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`, which clears `selectedId` in `Gallery`, so the derived `selectedCharacter` becomes null. Keep both routes coordinated through this one teardown function.
+The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent. It restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`. That call clears `selectedId` in `Gallery`, so the derived `selectedCharacter` becomes null. Keep both routes coordinated through this one teardown function.
 
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
 
@@ -758,9 +758,9 @@ This map is the single authority for documentation updates. Start here before yo
 | `docs/designMasonry.md` | Developers | The layout strategy or the animation model changes. |
 | `docs/adr/` | Developers | A decision that constrains future changes is settled. |
 | `docs/ASD-STE100-LLM-Writing-Rules.md` | Writers | Rarely. It is the style reference for the other documents. |
-| `README.md` | Users and newcomers | The features, the setup steps, or the command line changes. |
+| `README.md` | Users and newcomers | The features, the setup steps, the command line, or the release and compatibility statement changes. |
 | `CONTRIBUTING.md` | Contributors | The checks, the conventions, or the pull request process changes. |
-| `CHANGELOG.md` | Users | A noteworthy change lands. Add its impact to `Unreleased` in the same pull request. |
+| `CHANGELOG.md` | Users | A noteworthy user-facing, setup or toolchain, or maintainer-policy change lands. Add its impact to `Unreleased` in the same pull request. |
 
 The table is not an inventory of every document. Other documents, such as `SECURITY.md` and the guidance in `docs/agents/`, follow the same rule.
 
@@ -772,7 +772,7 @@ The update rule:
 4. Add a changelog entry for a routine refactor, a dependency bump, or a test-only change only when its impact is noteworthy.
 5. Keep historical release entries and accepted architecture decisions as they are. A later accepted decision that changes an architecture decision must supersede it explicitly.
 
-## 19. Releases and the public contract
+## 19. Releases and the Public Contract
 
 This section defines the release procedure and the promise that a stable release makes. It does not describe the current state of `main`. Read the tag and `CHANGELOG.md` for that state.
 
@@ -792,7 +792,7 @@ Do these steps in this order.
 
 1. Confirm the gate. Run `npm run check`, `npm test`, and `npm run build` on the commit to release, and let continuous integration pass on that commit.
 2. Set the version in `package.json`, and set the same value in the root `version` field of `package-lock.json`. A normal `npm install` or `npm version` updates the lockfile root. Do not edit a dependency entry.
-3. Add a dated section to `CHANGELOG.md`, for example `## [1.1.0] - 2026-11-14`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
+3. Add a dated section to `CHANGELOG.md`, in the form `## [X.Y.Z] - YYYY-MM-DD`. Move the applicable `Unreleased` entries into it. Add the link definition at the foot of the file.
 4. Commit the version change and the changelog change.
 5. Create an annotated tag on that commit: `git tag -a vX.Y.Z -m "<message>"`. Put the highlights and the sentence that points readers to `CHANGELOG.md` in the message.
 6. Push the commit first, then push the tag.
@@ -820,13 +820,13 @@ The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
 
 A stable release covers three areas.
 
-- **Character library access.** A valid existing Character library stays accessible, with no data loss caused by the application, after a normal upgrade on the same origin. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
+- **Character library access.** A valid existing Character library stays accessible after a normal upgrade on the same origin. The application causes no data loss in that upgrade. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
 - **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image export.
 - **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
 
-The data promise excludes four cases. It does not cover data that was already corrupt, a failure of browser storage outside the application, a cleared site-data store, or a change of origin. The exclusions do not excuse loss caused by the application's own upgrade logic.
+The data promise has limits. The [README](../README.md#the-limits-of-the-promise) gives the four excluded cases and states that they do not excuse loss caused by the application's own upgrade logic.
 
-The promise does not create a permanent direct-migration path from every historical version. A record that an old version wrote in a form that the current code cannot read is not covered by an upgrade promise that no decision has made.
+The promise does not create a permanent direct-migration path from every historical version. No decision has been made about a library that a historical version wrote in a form that the current code cannot read.
 
 Exact UI wording, layout, and internal implementation are not part of the contract. A renamed label, a changed color, a moved button, or a refactored module is not a breaking change by itself.
 
@@ -838,13 +838,7 @@ This section records the consequence only. It does not choose the next version, 
 
 ### Security support and credit
 
-`SECURITY.md` is the authority for the supported lines. The 1.0.x line is supported.
-
-- A compatible fix for a supported line is a patch release.
-- An incompatible fix for a supported line needs an explicit release and support decision before publication. Do not publish it as an incompatible patch.
-- A later major release does not end support for an older line by itself. Ending that support needs a separate, recorded decision.
-- Credit the reporter in the release notes unless the reporter asks for anonymity.
-- This section sets no end-of-support date and no maintenance-branch workflow.
+`SECURITY.md` is the authority for the security support policy. It states the supported lines, patch releases, incompatible fixes, and the reporter credit. It also states that a later major release does not end support for an older line by itself. This section sets no end-of-support date and no maintenance-branch workflow.
 
 ### What this procedure does not decide
 

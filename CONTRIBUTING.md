@@ -126,31 +126,26 @@ definitions or thresholds.
 
 ### Releasing
 
-A stable release follows the procedure in
+A stable release follows the ordered steps in
 [section 19 of the developer wiki](docs/WIKI.md#19-releases-and-the-public-contract).
-The short form:
+Follow them there, and keep these invariants:
 
-1. Run `npm run check`, `npm test`, and `npm run build` on the commit that you
-   intend to release, and let CI pass on that commit.
-2. Set the version in `package.json` and the same value in the root `version`
-   field of `package-lock.json`. A normal `npm install` updates the lockfile
-   root; do not edit a dependency entry by hand.
-3. Write the dated section in `CHANGELOG.md`. It is the authoritative release
-   notes.
-4. Create an annotated `vX.Y.Z` tag on the checked commit. Point the annotation
-   at the dated changelog section, and add highlights only if they help.
-5. Optionally create a GitHub Release from the tag. Point it at the same section
-   instead of copying the full notes.
+- The package manifest, the lockfile root metadata, and the dated changelog
+  section carry the same version.
+- The dated section in `CHANGELOG.md` is the authoritative release notes. The tag
+  annotation and any GitHub Release point to that section, and they may carry
+  highlights.
+- The release has one annotated `vX.Y.Z` tag on the checked commit.
+- A GitHub Release is optional. When you create one, point it at the dated
+  section.
+- Released contents are immutable. Do not move or delete a published tag, do not
+  rewrite a dated section, and do not publish a release that describes other
+  contents.
+- No release automation is required. The steps are manual on purpose.
 
-Released contents are immutable. Do not move or delete a published tag, do not
-rewrite a dated changelog section, and do not publish a GitHub Release that
-describes different contents. No release automation is required; the steps are
-manual on purpose.
-
-The version increment is not a matter of taste. The SemVer mapping and the
-compatibility boundary that decide it are in
-[section 19](docs/WIKI.md#19-releases-and-the-public-contract) and in the
-[README](README.md#releases-and-compatibility), not in this guide.
+The version increment is not a matter of taste. Section 19 alone is the
+authority for it: it states the Semantic Versioning mapping and the
+compatibility boundary that decide the increment.
 
 ### Documentation style
 

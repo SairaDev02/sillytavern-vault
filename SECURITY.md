@@ -8,7 +8,8 @@
 | < 1.0 | No |
 
 Support for the 1.0.x line is in force. A later major release does not end it by
-itself; ending that support needs a separate, recorded decision.
+itself. Ending that support needs a separate decision, recorded in an issue or in
+the developer wiki.
 
 ## Reporting a vulnerability
 
