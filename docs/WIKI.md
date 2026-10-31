@@ -231,6 +231,18 @@ One display rule for the card and the lightbox:
 ```ts
 export const REPAIR_WARNING = 'Some stored images could not be measured. ...';
 export type LibraryStatus = 'loading' | 'ready' | 'failed';
+export interface RestoreCounts {
+  added: number;
+  skipped: number;
+}
+export interface RestorePlan {
+  records: Character[];
+  counts: RestoreCounts;
+}
+export function planRestore(
+  records: readonly Character[],
+  present: readonly Character[]
+): RestorePlan;
 export interface CharacterDraft {
   id?: string;
   name: string;
@@ -263,7 +275,7 @@ export class CharacterLibrary {
   save(draft: CharacterDraft): Promise<void>;
   remove(id: string): Promise<void>;
   removeMany(ids: string[]): Promise<void>;
-  restore(records: Character[]): Promise<{ added: number; skipped: number }>;
+  restore(records: Character[]): Promise<RestoreCounts>;
   settled(): Promise<void>;
   dispose(): void;
 }
@@ -277,7 +289,8 @@ One instance belongs to one page lifetime. It is the only writer of Character re
 - `save` assembles the record: a fresh identity on create, the stored identity and creation time on an edit. An edit whose identity is not in the canonical list rejects with `missing-target` and writes nothing. A draft with no complete pair supplies no size, and a partial pair collapses to no size. When no size is supplied and the image is unchanged, the stored pair is kept; otherwise the record has no size. A copied draft is used, so a later form change cannot alter a save already in flight.
 - A resolved mutation means the storage transaction committed and the record is published. A rejection means nothing was committed. A `write-failed` error carries the storage error in `cause`.
 - `settled` is the read barrier a Backup uses. It queues behind the same chain as saves and deletes, so it resolves only after every mutation accepted before the call has settled, and the canonical list then holds every accepted change. It does not wait for background measurement and does not read storage again.
-- `restore` runs on that same chain, so it cannot interleave with a save or a delete. It applies the collision rule against the list as it stands when the write is about to run: a record whose identity is already present is skipped, and the second copy of an identity in the same batch is a skip rather than a second write. The added records go to `dbPutMany` in one transaction, and the batch is published in one step only after that transaction commits. `restore` returns the added and skipped counts it actually applied, so the report cannot disagree with the library. A rejection writes nothing and leaves the canonical list unchanged. After publishing, it schedules the background repair for added records without a complete size pair.
+- `restore` runs on that same chain, so it cannot interleave with a save or a delete. It applies the collision rule against the list as it stands when the write is about to run: a record whose identity is already present is skipped, and the second copy of an identity in the same batch is a skip rather than a second write. The added records go to `dbPutMany` in one transaction, and the batch is published in one step only after that transaction commits. `restore` returns the `RestoreCounts` it actually applied, so the report cannot disagree with the library. A rejection writes nothing and leaves the canonical list unchanged. After publishing, it schedules the background repair for added records without a complete size pair.
+- `planRestore` is the one home of that collision rule, and it is pure: given a batch and a list of Characters, it returns the records a write would add and the counts that describe them. `restore` calls it on the chain against the list at the moment of the write; the Backup section calls it after `settled` to preview the same counts for the confirmation. The preview is never authoritative, because `restore` recomputes rather than accepting the preview's numbers.
 - Background repair measures a record without a size outside the chain and enqueues only the short write. The write re-checks that the record still exists, still shows the measured image, is still the same image generation, and still has no size. It merges the pair into the current record, so a newer name or description always wins. Attempts are bounded once per identity and image generation per initialized lifetime. A failure logs the Character name and sets one `repairWarning`.
 - `dispose` marks the instance inactive. Later repairs and publications do nothing, new mutations reject, an accepted write still commits and settles, and the connection closes after the chain drains.
 
@@ -425,7 +438,7 @@ The module owns the file and nothing else. It does not import `db.ts`, a compone
 - `backupParts` returns the header line and one line per record as separate strings. A caller can build a Blob from the array, so no single string spans the library.
 - `backupFileName` builds `character-gallery-backup-<YYYY-MM-DD>.jsonl` from the local calendar day.
 - `parseBackup` reads the file line by line and holds at most one unfinished line. It strips a byte-order mark from the first line and a carriage return from the end of each line, skips whitespace-only lines, and refuses a line over `maxLineLength`.
-- A structural failure rejects the whole file before it yields one record: content that is not JSON Lines, an unreadable header, another format, an unsupported version, one identity twice, or a line too long to be a record.
+- A structural failure rejects the whole file before it yields one record: content that is not JSON Lines, an unreadable header, another format, an unsupported version, two lines that name one identity, or a line longer than the reader will hold. A line that fails the record matrix still names the identity it carries, so it counts toward the duplicate rule.
 - A line that is not a Character is skipped and listed in `unreadable` with its 1-based line number and its first failed rule. The record matrix checks `id`, `name`, `description`, `createdAt`, the image data URL shape, and the size pair. Unknown extra fields are ignored.
 - The image rule checks the data URL's shape only: an `image/*` MIME type, the `base64` flag, and a non-empty payload. The bytes are not decoded.
 
@@ -623,9 +636,9 @@ The section is a view over the library. It mounts below the Gallery and outside 
 - **Create Backup** is also disabled for an empty library, with the reason that there are no Characters to back up yet.
 - A Backup waits for `library.settled()`, gives the page one task boundary so the busy status renders, snapshots `library.characters`, and builds the file with `backupParts`. It hands the Blob and `backupFileName(exportedAt)` to `downloadBlob`. The status reports a handoff, never a saved file.
 - Restore uses the native file input directly, with a visible label. There is no hidden input and no separate browse button.
-- Restore reads and validates the whole file with `parseBackup` before it counts or writes anything. It then waits for `settled` and counts the records the library does not hold.
+- Restore reads and validates the whole file with `parseBackup` before it counts or writes anything. It then waits for `settled` and previews the counts with `planRestore(parsed.records, library.characters)`.
 - When at least one Character would be added, one native confirmation states the add, keep, and unreadable counts. Cancel writes nothing. When nothing would be added, nothing is written and nothing is asked.
-- The report uses the counts `CharacterLibrary.restore` returns, not the counts from before the write. Each unreadable record is named by its line and its reason.
+- The report uses the counts `CharacterLibrary.restore` returns, not the preview's counts. Each unreadable record is named by its line and its reason, and one formatter writes the sentence for both a Restore that wrote records and one that wrote none.
 - Progress and success are one polite `role="status"` line, rendered empty from the start. A failure is an inline `role="alert"`. Nothing moves focus.
 - The file input is reset after every attempt, so the same file can be chosen again.
 - The section renders `StorageProtection` last, below its own feedback, so the storage answer never competes with a Backup or Restore message.
@@ -658,7 +671,7 @@ Props: `protection`, a `PersistentStorage` owner. The component renders the labe
 
 **Backup.** The person presses **Create Backup**. The section waits for `library.settled()`, so a Character saved a moment earlier is in the file, then snapshots the canonical list and builds one line per Character as separate parts. It names the file with the local date and hands the Blob to `downloadBlob`. The status reports a handoff to the browser. The app cannot observe whether a file was saved, so it never reports one.
 
-**Restore.** The person chooses a file in the labelled native input. The section reads and validates the whole file first, so a structural failure writes nothing and names the problem. It waits for `settled` and counts the additions, the kept records, and the unreadable lines. With at least one addition it asks for one native confirmation that states those counts; Cancel writes nothing. `CharacterLibrary.restore` then applies the collision rule on its own chain, writes the batch in one transaction, publishes it in one step, and returns the applied counts that the section reports. The Gallery view keeps its search, sort, paging, and selection, and an open form keeps its draft.
+**Restore.** The person chooses a file in the labelled native input. The section reads and validates the whole file first, so a structural failure writes nothing and names the problem. It waits for `settled` and previews the additions, the kept records, and the unreadable lines with `planRestore`. With at least one addition it asks for one native confirmation that states those counts; Cancel writes nothing. `CharacterLibrary.restore` then applies the same collision rule on its own chain, writes the batch in one transaction, publishes it in one step, and returns the applied counts that the section reports. The Gallery view keeps its search, sort, paging, and selection, and an open form keeps its draft.
 
 **Persistent storage.** After the library first becomes ready, the page asks the browser once and the answer waits in the Backup section. The line states which answer arrived, and **Try again** makes one user-initiated request. The answer is advisory: neither Backup nor Restore depends on it.
 
@@ -735,7 +748,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-empty-state.test.ts` | The mounted Gallery: genuine empty library versus no matches, Clear search focus in browse and selection modes, and the Cancel fallback. |
 | `tests/gallery-card-image.test.ts` | The mounted card: the reserved frame from usable and unusable pairs, the failure fallback and its description, the preserved actions, and source replacement. |
 | `tests/lightbox-image.test.ts` | The mounted dialog: the reserved frame, polite status, the failure following the displayed Character and source, and late events from a replaced source. |
-| `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Also the settle barrier, the additive and idempotent Restore with its applied counts, and the size repair of a restored record. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
+| `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Also the settle barrier, the additive and idempotent Restore with its applied counts, the collision rule `planRestore` marking the same counts the write applies, and the size repair of a restored record. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
 | `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. Also the form focus lifecycle: entry focus for both origins, the lightbox close-timing handover, save-start, validation and rejected-save outcomes, and the one-time return handover for Add and for an Edit target that is rendered, duplicated by name, or not rendered at all. The handover resolves the card by its identity attribute, and it also runs when nothing is focused. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |

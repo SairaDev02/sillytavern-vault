@@ -187,6 +187,9 @@ export interface CharacterLibraryDeps {
   databaseName?: string;
   logger?: Pick<Console, 'warn' | 'error'>;
 }
+export interface RestoreCounts { added: number; skipped: number; }
+export interface RestorePlan { records: Character[]; counts: RestoreCounts; }
+export function planRestore(records: readonly Character[], present: readonly Character[]): RestorePlan;
 export class CharacterLibrary {
   constructor(deps?: CharacterLibraryDeps);
   readonly characters: Character[];
@@ -197,7 +200,7 @@ export class CharacterLibrary {
   save(draft: CharacterDraft): Promise<void>;
   remove(id: string): Promise<void>;
   removeMany(ids: string[]): Promise<void>;
-  restore(records: Character[]): Promise<{ added: number; skipped: number }>;
+  restore(records: Character[]): Promise<RestoreCounts>;
   settled(): Promise<void>;
   dispose(): void;
 }
@@ -266,7 +269,7 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 `downloadBlob` is the one delivery path for the image export and the Backup: it clicks a temporary link and revokes the object URL after `OBJECT_URL_LIFETIME_MS`. A click is a handoff, not a saved file.
 
-`parseBackup` rejects the whole file with a `BackupFileError` for `not-json-lines`, `header`, `format`, `version`, `duplicate-id`, or `line-too-long`, before it returns one record. A line that is not a Character is listed in `unreadable` with its 1-based line number and its first failed rule. Version 1 is the only version it reads.
+`parseBackup` rejects the whole file with a `BackupFileError` for `not-json-lines`, `header`, `format`, `version`, `duplicate-id`, or `line-too-long`, before it returns one record. A line that is not a Character is listed in `unreadable` with its 1-based line number and its first failed rule. Version 1 is the only version it reads. Two lines that carry one string `id` are a `duplicate-id` failure even when one of them fails the record matrix, because such a line still names the Character it claims to be.
 
 ---
 
@@ -334,8 +337,8 @@ MUST hold after any change.
 24. A form's return handover happens once, after the destination renders, and resolves an edited Character by identity rather than by name. The browse card carries that identity as `data-character-id`, and `Gallery` matches the attribute rather than the rendered order. A later page of results never repeats the handover. A control the user focused outside the form while a save was pending keeps the focus, but a page with nothing focused hands over. A rejected save moves no focus to the Gallery. A save completion belongs to the form that started it, so a completion that arrives after the user opened another form leaves that form, its draft, and its focus alone. See `src/App.svelte` and `src/components/Gallery.svelte`.
 25. The Backup file is the version-1 contract in `src/backup-format.ts`: one header line, then one stored Character per line. **Format version 1 stays restorable.** A later app version keeps reading `formatVersion: 1`. An unknown or newer version is refused before any write, and the refusal names the declared version.
 26. A restored Character keeps its stored `id` and `createdAt`. Never mint an identity or a creation time on Restore, and never write a record over an existing identity.
-27. Restore is additive and idempotent. A record whose identity is already in the canonical list is skipped, so re-Restoring one Backup converges and a stale Backup never rolls back local work. Overwrite or rollback Restore is out of scope.
-28. One Restore commits every admitted record or none. The batch goes to `dbPutMany` in one transaction, the canonical list is published only after that commit, and a rejection leaves storage and the list unchanged. The counts `restore` returns are the counts it applied.
+27. Restore is additive and idempotent. A record whose identity is already in the canonical list is skipped, so re-Restoring one Backup converges and a stale Backup never rolls back local work. Overwrite or rollback Restore is out of scope. The rule is the exported pure `planRestore`: `restore` recomputes it on its chain and the Backup section previews the confirmation with it, so one function states the rule.
+28. One Restore commits every admitted record or none. The batch goes to `dbPutMany` in one transaction, the canonical list is published only after that commit, and a rejection leaves storage and the list unchanged. `restore` returns `RestoreCounts`, and those are the counts it applied.
 29. No single string spans the library in either direction. Export writes per-record parts into one Blob, and import reads chunks and holds at most one unfinished line. The format module never touches storage or the DOM, and the library stays the only writer: a Backup reads the canonical list only after `settled()`.
 30. A structural file failure writes nothing. A record that fails the record matrix is skipped and reported with its line number and its first failed rule, never dropped silently. The whole file is read and validated before the first write.
 
