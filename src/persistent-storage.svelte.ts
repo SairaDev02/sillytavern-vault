@@ -7,8 +7,9 @@
  * page-scope on purpose: the Backup section mounts and unmounts with the
  * library's status, and a remount must not ask again.
  *
- * The request never blocks the page and nothing announces it at start-up. The
- * four answers are shown in the Backup section, and a person can ask again.
+ * The request never blocks the page and the app announces nothing at start-up,
+ * though the browser may show its own permission prompt. The four answers are
+ * shown in the Backup section, and a person can ask again.
  *
  * It is advisory. A denial, a browser that does not report protection, or a
  * failed check changes nothing about Backup, Restore, or normal use: no caller

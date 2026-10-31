@@ -34,6 +34,14 @@ stream: export builds the download Blob from per-record parts rather than one
 string, and Restore reads the file line by line, so no single string spans the
 library.
 
+**One line has a ceiling, and both directions apply it.** The reader holds at
+most one line, bounded by 128 × 1024 × 1024 UTF-16 code units of the decoded
+line. That count is a JavaScript string length, not a byte count, so a line of
+non-ASCII text can carry more bytes than its length. Backup checks the same
+bound on every serialized Character before it builds the file: a Character over
+the bound refuses the whole Backup before any handoff, with a message that names
+it. Backup therefore does not hand off a file with an over-bound Character line.
+
 **The format is app-owned and versioned.** The header declares
 `format: "character-gallery/backup"`, `formatVersion: 1`, `exportedAt`, and
 `appVersion`. This version restores format version 1 only, and refuses an
@@ -71,7 +79,8 @@ dropped silently.
 user-triggered file operations, offline, with no upload and no third-party
 dependency. Persistent storage is requested once after the library is ready and
 its state is shown in the Backup area; Backup and Restore never depend on the
-outcome.
+outcome. The app shows no notice of its own when it asks, though the browser may
+show its own permission prompt.
 
 ## Consequences
 
@@ -85,6 +94,11 @@ outcome.
   required evidence rather than an assumption.
 - A new format module, a bulk write helper, and a library Restore operation are
   added. The database schema does not change.
+- Recovery is not universal. A single Character whose serialized line exceeds
+  the reader's bound cannot be backed up or restored by this app, and its
+  library is refused as a whole, with that Character named, rather than partly
+  written. The bound is the app's own ceiling on one record; the format and its
+  version-1 bytes are unchanged by it.
 - Damage that is not detectable from the data URL's shape — a byte-corrupt PNG,
   for example — restores a Character whose card shows the existing image
   fallback.

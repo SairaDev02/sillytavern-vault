@@ -372,6 +372,25 @@ describe('Restore', () => {
     expect(await storedCharacters(APP_DB)).toHaveLength(1);
   });
 
+  it('treats an image type with no subtype as unreadable, writing nothing', async () => {
+    await seedDatabase(APP_DB, [makeCharacter(1)]);
+    app = mount(App, { target });
+    await waitForReady();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const text = backupText([], [
+      JSON.stringify({ ...makeCharacter(2), image: 'data:image/;base64,AAAA' }),
+    ]);
+    await restoreFile(backupFile(text));
+
+    expect(confirmSpy()).not.toHaveBeenCalled();
+    expect(statusText()).toMatch(/nothing was written/i);
+    expect(statusText()).toMatch(/1 record could not be read/);
+    expect(statusText()).toMatch(/line 2: the image is not an image/);
+    expect(figures()).toHaveLength(1);
+    expect(await storedCharacters(APP_DB)).toHaveLength(1);
+  });
+
   it('refuses a file that carries one identity twice and writes nothing', async () => {
     await seedDatabase(APP_DB, [makeCharacter(1)]);
     app = mount(App, { target });

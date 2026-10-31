@@ -21,7 +21,8 @@ export const BACKUP_MIME_TYPE = 'application/x-ndjson';
  * The longest line the reader will hold. A longer line refuses the file rather
  * than buffering without limit. The app enforces no image-size limit, so a
  * legitimate record could in principle be this long; the reader cannot tell it
- * from a damaged line and does not claim otherwise.
+ * from a damaged line and does not claim otherwise. The writer holds the same
+ * bound, so the app never hands off an over-bound record line.
  */
 export const MAX_LINE_LENGTH = 128 * 1024 * 1024;
 
@@ -77,18 +78,107 @@ export function serializeCharacterRecord(character: Character): string {
 }
 
 /**
+ * Why no Backup was created: one Character could not go into the file — its
+ * record line would be past the bound a Restore reads, or it could not be
+ * written at all — so the whole Backup is refused and that Character is named.
+ * A file without it would be a silently partial Backup.
+ */
+export class BackupRecordError extends Error {
+  /** What record preparation threw, when that is why the record was refused. */
+  readonly cause: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = 'BackupRecordError';
+    this.cause = cause;
+  }
+}
+
+/** What every record refusal says happened: nothing. */
+const NOTHING_WAS_WRITTEN = 'Nothing was downloaded and your library is unchanged.';
+
+/** The refusal for a record too large for a line, whatever part of it is large. */
+function tooLargeRecord(name: string): string {
+  return (
+    `This Backup cannot be created: the Character ${name} is too large for one record line ` +
+    `that Restore can read. ${NOTHING_WAS_WRITTEN} ` +
+    'Edit that Character to reduce its text or image, then try again.'
+  );
+}
+
+/** The refusal for a record the serializer could not turn into a line. */
+function unwritableRecord(name: string): string {
+  return (
+    `This Backup cannot be created: the Character ${name} could not be written as a record ` +
+    `line. ${NOTHING_WAS_WRITTEN}`
+  );
+}
+
+/**
+ * How much of a record is stored text. JSON escaping only ever lengthens a
+ * field, so this total is a floor for the serialized line's length.
+ */
+function storedFieldLength(character: Character): number {
+  return (
+    character.id.length +
+    character.name.length +
+    character.description.length +
+    character.image.length
+  );
+}
+
+/**
+ * One record's line, or the refusal that keeps a Restore able to read it.
+ *
+ * The stored fields' total is checked first: past the bound there, the line is
+ * past it too, so the largest strings are never joined. Escaping can still push
+ * a record whose fields fit past the bound, so the exact serialized length then
+ * decides. A serializer failure is attributed to the Character, not the app,
+ * and a line exactly at the bound is accepted, as the reader accepts it.
+ */
+function recordLine(character: Character, maxLineLength: number): string {
+  // Bound the diagnostic before serializing it; the name itself may be huge.
+  const label = character.name.length > 100 ? `${character.name.slice(0, 100)}…` : character.name;
+  const name = JSON.stringify(label);
+  try {
+    if (storedFieldLength(character) > maxLineLength) {
+      throw new BackupRecordError(tooLargeRecord(name));
+    }
+    const line = serializeCharacterRecord(character);
+    if (line.length > maxLineLength) {
+      throw new BackupRecordError(tooLargeRecord(name));
+    }
+    return line;
+  } catch (cause) {
+    // Keep a known size refusal; attribute any preparation failure to this record.
+    if (cause instanceof BackupRecordError) throw cause;
+    throw new BackupRecordError(unwritableRecord(name), cause);
+  }
+}
+
+export interface BackupPartsOptions {
+  /** How long one record line may be before the whole Backup is refused. */
+  maxLineLength?: number;
+}
+
+/**
  * The file as per-line parts: the header line first, then one part per record.
  *
  * Each part is one complete line, so a caller can hand the array to
  * `new Blob([...])` without building one string that spans the library.
+ *
+ * A record line longer than the reader's bound would make the file impossible
+ * to restore, so it refuses the whole Backup before any part reaches the
+ * browser: no partial file is ever handed over.
  */
 export function backupParts(
   characters: readonly Character[],
-  exportedAt: Date = new Date()
+  exportedAt: Date = new Date(),
+  { maxLineLength = MAX_LINE_LENGTH }: BackupPartsOptions = {}
 ): string[] {
   return [
     `${JSON.stringify(createBackupHeader(exportedAt))}\n`,
-    ...characters.map((character) => `${serializeCharacterRecord(character)}\n`),
+    ...characters.map((character) => `${recordLine(character, maxLineLength)}\n`),
   ];
 }
 

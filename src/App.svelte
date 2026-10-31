@@ -72,8 +72,8 @@
   });
 
   // Ask the browser for persistent storage once, after the library first
-  // becomes ready. The request does not block the page and produces no
-  // start-up notice; the answer waits in the Backup section.
+  // becomes ready. The app shows no start-up notice; the browser may show a
+  // permission prompt. The answer waits in the Backup section.
   $effect(() => {
     if (library.status === 'ready') protection.requestOnce();
   });

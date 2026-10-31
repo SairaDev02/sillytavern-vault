@@ -3,6 +3,7 @@
   import {
     BACKUP_MIME_TYPE,
     BackupFileError,
+    BackupRecordError,
     backupFileName,
     backupParts,
     parseBackup,
@@ -207,8 +208,14 @@
       // system decides whether and where the file is saved.
       statusMessage = handoff(fileName);
     } catch (error) {
-      console.error('Failed to create a Backup:', error);
-      failureMessage = BACKUP_FAILED;
+      if (error instanceof BackupRecordError) {
+        // The format owner identifies the record that prevented the Backup.
+        console.warn('Refused to create a Backup:', error);
+        failureMessage = error.message;
+      } else {
+        console.error('Failed to create a Backup:', error);
+        failureMessage = BACKUP_FAILED;
+      }
       statusMessage = '';
     } finally {
       operation = null;

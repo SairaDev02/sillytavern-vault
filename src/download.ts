@@ -3,6 +3,16 @@ import type { Character } from './types';
 /** Matches `data:<mime>[;param...],<payload>` and captures the three parts. */
 const DATA_URL_PATTERN = /^data:([^,;]+)((?:;[^,]*)?),(.*)$/s;
 
+/**
+ * The ASCII HTTP token characters (`tchar` in RFC 9110), which WHATWG MIME
+ * parsing requires of a type and a subtype: no space, no extra slash, and
+ * never empty.
+ */
+const HTTP_TOKEN = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+
+/** A media type's top-level type, compared without regard to ASCII case. */
+const IMAGE_TYPE = /^image$/i;
+
 /** How long the object URL for a download stays alive before it is released. */
 export const OBJECT_URL_LIFETIME_MS = 60_000;
 
@@ -18,13 +28,24 @@ export function parseDataUrl(dataUrl: string): { mime: string; base64: string; e
     throw new Error('Invalid data URL');
   }
 
-  const mime = match[1].trim().toLowerCase();
+  const typeText = match[1].trim();
   const parameters = match[2];
   const payload = match[3];
 
-  if (!mime.startsWith('image/')) {
-    throw new Error(`Unsupported data URL type: ${mime}`);
+  const separator = typeText.indexOf('/');
+  const type = separator === -1 ? typeText : typeText.slice(0, separator);
+  const subtype = separator === -1 ? '' : typeText.slice(separator + 1);
+
+  // Checked as written, before lower-casing: some non-ASCII code points
+  // lower-case to an ASCII letter (the Kelvin sign to `k`), so a check made
+  // afterwards would admit a type WHATWG MIME parsing does not accept.
+  if (!IMAGE_TYPE.test(type) || !HTTP_TOKEN.test(subtype)) {
+    throw new Error(`Unsupported data URL type: ${typeText.toLowerCase()}`);
   }
+
+  // Lower-cased only once the type is known to be ASCII, so the returned type
+  // is the canonical `image/<subtype>` the rest of the app compares against.
+  const mime = `${type.toLowerCase()}/${subtype.toLowerCase()}`;
 
   const isBase64 = parameters
     .split(';')
@@ -36,8 +57,7 @@ export function parseDataUrl(dataUrl: string): { mime: string; base64: string; e
 
   // `ext` is only a convenience for callers that build a filename from it, so
   // keep it to plain letters and digits.
-  const subtype = mime.slice(mime.indexOf('/') + 1);
-  const ext = subtype.split('+')[0].replace(/[^a-z0-9]/g, '') || 'png';
+  const ext = subtype.toLowerCase().split('+')[0].replace(/[^a-z0-9]/g, '') || 'png';
 
   return { mime, base64: payload, ext };
 }

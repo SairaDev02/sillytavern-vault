@@ -109,13 +109,19 @@ Because the app is client-side only:
 - Nothing is uploaded. There is no server and no telemetry.
 - Clearing site data, or "Clear browsing data → Cookies and other site data" in
   some browsers, deletes the gallery permanently.
+- Your browser may ask whether to protect this site's storage, so that it does
+  not clear your library to free up space. The app asks once after your library
+  loads and shows no notice of its own; the answer appears in the Backup and
+  restore section.
 - The app cannot open `file://` URLs. Use the launcher or any static server.
 - **Create Backup**, in the Backup and restore section below the Gallery, creates
   one file that carries every Character with its name, description, image, and
   creation time. **Restore** adds the Characters in that file back and keeps any
   Character the library already holds. Both stay in your browser: no server, no
   account, and no upload. The file name states its purpose and its date, as in
-  `character-gallery-backup-2026-10-31.jsonl`.
+  `character-gallery-backup-2026-10-31.jsonl`. A Character too large for the
+  Backup reader stops the Backup before the file is handed over, and the message
+  names that Character.
 - The download button exports one image. The Backup is the copy of the whole
   library. Your browser or operating system chooses where to save the file.
 

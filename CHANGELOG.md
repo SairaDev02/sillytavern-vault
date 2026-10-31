@@ -37,11 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   states its purpose and date, as in
   `character-gallery-backup-2026-10-31.jsonl`. Both actions stay in the browser:
   no server, no account, and no upload. A Backup handoff is reported as a
-  handoff, never as a saved file.
+  handoff, never as a saved file. A Character whose line is larger than the
+  app's Backup reader will hold stops the Backup before any file is handed over,
+  and the message names that Character.
 - The Backup and restore section also says whether the browser protects this
-  site's storage, and offers Try again. A denial, a browser that does not report
-  protection, or a failed check changes nothing about Backup, Restore, or normal
-  use.
+  site's storage, and offers Try again. The app asks the browser for protection
+  once after the library loads and shows no notice of its own at start-up,
+  though the browser may show its own permission prompt. A denial, a browser
+  that does not report protection, or a failed check changes nothing about
+  Backup, Restore, or normal use.
 
 ### Changed
 

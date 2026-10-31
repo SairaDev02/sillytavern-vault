@@ -350,12 +350,65 @@ describe('record matrix: image data URL shape', () => {
       recordLine({ id: 'png', image: 'data:image/png;base64,AAAA' }),
       recordLine({ id: 'svg', image: 'data:image/svg+xml;base64,PHN2Zy8+' }),
       recordLine({ id: 'param', image: 'data:image/jpeg;charset=utf-8;base64,/9j/4AAQ' }),
+      recordLine({ id: 'svg-case', image: 'data:IMAGE/SVG+XML;base64,PHN2Zy8+' }),
+      recordLine({ id: 'svg-param', image: 'data:image/svg+xml;charset=utf-8;base64,PHN2Zy8+' }),
+      // Any legal subtype token is an image: no registry of known types is kept.
+      recordLine({ id: 'dotted', image: 'data:image/x-private.icon;base64,AAAA' }),
       // The bytes are never decoded, so a shaped payload is enough.
       recordLine({ id: 'junk', image: 'data:image/png;base64,not actually base64!!' })
     );
 
-    expect(parsed.records.map((record) => record.id)).toEqual(['png', 'svg', 'param', 'junk']);
+    expect(parsed.records.map((record) => record.id)).toEqual([
+      'png',
+      'svg',
+      'param',
+      'svg-case',
+      'svg-param',
+      'dotted',
+      'junk',
+    ]);
     expect(parsed.unreadable).toEqual([]);
+  });
+
+  it('skips an image whose subtype is not ASCII, even when it lower-cases to ASCII', async () => {
+    // U+212A KELVIN SIGN lower-cases to the ASCII letter `k`, so a check made
+    // after lower-casing would admit a type that is not an ASCII HTTP token.
+    const parsed = await parseRecords(
+      recordLine({ id: 'kelvin', image: 'data:image/\u212A;base64,AAAA' })
+    );
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toEqual([{ line: 2, reason: 'the image is not an image' }]);
+  });
+
+  it('skips an image whose type is not a media subtype token', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'space', image: 'data:image/png png;base64,AAAA' }),
+      recordLine({ id: 'slash', image: 'data:image/png/foo;base64,AAAA' })
+    );
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toEqual([
+      { line: 2, reason: 'the image is not an image' },
+      { line: 3, reason: 'the image is not an image' },
+    ]);
+  });
+
+  it('skips an image whose type names no subtype', async () => {
+    const parsed = await parseRecords(recordLine({ image: 'data:image/;base64,AAAA' }));
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toEqual([{ line: 2, reason: 'the image is not an image' }]);
+  });
+
+  it('keeps restoring the rest of the file when one image type names no subtype', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'no-subtype', image: 'data:image/;base64,AAAA' }),
+      recordLine({ id: 'ok', image: 'data:image/png;base64,AAAA' })
+    );
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['ok']);
+    expect(parsed.unreadable).toEqual([{ line: 2, reason: 'the image is not an image' }]);
   });
 
   it('skips an image that is not an image data URL with a base64 payload', async () => {
