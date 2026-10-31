@@ -42,11 +42,13 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `src/types.ts` | `Character` interface | Any data-shape question |
 | `src/character-library.svelte.ts` | `CharacterLibrary` class: the canonical list, start-up and Retry, record rules, mutation ordering, delete outcomes, legacy size repair | Any persistence, list, or record-rule change |
 | `src/library-error.ts` | `LibraryError` + `LibraryErrorKind`, no storage imports | Error-kind branching in a component |
-| `src/db.ts` | IndexedDB open/add/delete/getAll | Storage behavior |
+| `src/backup-format.ts` | The version-1 Backup file: header, file name, version rule, record matrix, streaming reader. No storage and no DOM | Reading or writing a Backup file |
+| `src/db.ts` | IndexedDB open/add/delete/getAll and the bulk write | Storage behavior |
 | `src/id.ts` | `generateId()` | Id format |
 | `src/image.ts` | `measureImage(src)` | Intrinsic size logic |
 | `src/image-frame.ts` | The frame rule shared by the card and the lightbox: stored pair or 4:3 fallback, plus the source-scoped failure check | Image shape or image-failure display |
 | `src/download-attempts.svelte.ts` | `DownloadAttempts` class: page-owned attempts, per-Character ordering, the one failure notice | Download feedback |
+| `src/persistent-storage.svelte.ts` | `PersistentStorage` class: the page-owned eviction-protection answer, one request, the user-initiated retry | Storage-protection line |
 | `src/selected-image.svelte.ts` | `SelectedImage` class: choice ordering, image/dimension pairing, readiness, discard, obsolete-result suppression | Character form image behavior |
 | `src/gallery-utils.ts` | `PAGE_SIZE`, `SortMode`, filter/sort | Search, sort, page size |
 | `src/download.ts` | Data URL parse, PNG conversion, filename, download | Export path |
@@ -57,7 +59,16 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `src/components/MasonryItem.svelte` | One card: image, hover label, download, checkbox | Card UI |
 | `src/components/Lightbox.svelte` | `<dialog>` detail view, keyboard + button nav, focus restore with the Edit handover exception | Detail view |
 | `src/components/CharacterForm.svelte` | Add/edit form, text fields, save gating and locking, entry and save-start focus | Form behavior |
+| `src/components/BackupSection.svelte` | The Backup and restore section below the Gallery: the two actions, counts, confirmation, and its own feedback | Backup or Restore behavior |
+| `src/components/StorageProtection.svelte` | The storage-protection line and **Try again** | Storage-protection UI |
+| `tests/backup-format.test.ts` | The version-1 file contract at the format seam | Any change to the file format or its reader |
+| `tests/backup-section.test.ts` | The mounted Backup action, its disable rules, and its handoff | Backup UI |
+| `tests/restore-section.test.ts` | The mounted Restore: counts, confirmation, cancel, refusals, additive writes | Restore UI |
+| `tests/storage-protection.test.ts` | The protection owner and its line, plus a denial that gates nothing | Storage-protection behavior |
+| `tests/download-blob.test.ts` | The one Blob delivery path and the delayed release of the object URL | Download delivery |
 | `tests/*` | Vitest suites + helpers | Any behavior change |
+| `docs/adr/0002-character-library-backup-and-restore.md` | The accepted Backup and Restore decision | Before changing the file format or the Restore rule |
+| `docs/verification/72-backup-restore-browser-evidence.md` | The real-browser and large-library record for Backup and Restore, with its limits | Before claiming a browser result |
 | `docs/WIKI.md` | Developer wiki | Before changing architecture |
 
 Recommended reading order for first contact: `src/types.ts` -> `src/character-library.svelte.ts` -> `src/App.svelte` -> `src/components/Gallery.svelte` -> `src/gallery-utils.ts` -> `src/db.ts` -> the remaining components.
@@ -69,12 +80,18 @@ graph TD
   main --> App
   App --> characterLibrary
   App --> downloadAttempts
+  App --> persistentStorage
   App --> Gallery
   App --> CharacterForm
+  App --> backupSection
   characterLibrary --> db
   characterLibrary --> id
   characterLibrary --> image
   downloadAttempts --> download
+  backupSection --> backupFormat
+  backupSection --> persistentStorage
+  backupSection --> storageProtection
+  backupFormat --> download
   Gallery --> GalleryToolbar
   Gallery --> MasonryGrid
   Gallery --> Lightbox
@@ -104,6 +121,7 @@ export function dbAdd<T>(db: IDBDatabase, item: T): Promise<void>;      // put: 
 export function dbDelete(db: IDBDatabase, id: string): Promise<void>;
 export function dbGetAll<T>(db: IDBDatabase): Promise<T[]>;
 export function dbDeleteMany(db: IDBDatabase, ids: string[]): Promise<void>;
+export function dbPutMany<T>(db: IDBDatabase, items: readonly T[]): Promise<void>;  // one transaction, resolves on commit
 
 // src/id.ts
 export function generateId(): string;   // crypto.randomUUID(), fallback: time36 + random
@@ -162,6 +180,7 @@ export interface CharacterLibraryDeps {
   write?: (db: IDBDatabase, character: Character) => Promise<void>;
   remove?: (db: IDBDatabase, id: string) => Promise<void>;
   removeMany?: (db: IDBDatabase, ids: string[]) => Promise<void>;
+  writeMany?: (db: IDBDatabase, records: Character[]) => Promise<void>;
   measure?: (src: string) => Promise<{ width: number; height: number }>;
   generateId?: () => string;
   now?: () => number;
@@ -178,8 +197,44 @@ export class CharacterLibrary {
   save(draft: CharacterDraft): Promise<void>;
   remove(id: string): Promise<void>;
   removeMany(ids: string[]): Promise<void>;
+  restore(records: Character[]): Promise<{ added: number; skipped: number }>;
+  settled(): Promise<void>;
   dispose(): void;
 }
+
+// src/persistent-storage.svelte.ts
+export type ProtectionState = 'unchecked' | 'protected' | 'not-protected' | 'unsupported' | 'failed';
+export interface PersistentStorageDeps {
+  persisted?: (() => Promise<boolean>) | undefined;
+  persist?: (() => Promise<boolean>) | undefined;
+  logger?: Pick<Console, 'warn' | 'error'>;
+}
+export class PersistentStorage {
+  constructor(deps?: PersistentStorageDeps);
+  readonly state: ProtectionState;
+  readonly pending: boolean;
+  readonly message: string;
+  readonly canRetry: boolean;
+  requestOnce(): void;
+  retry(): void;
+}
+
+// src/backup-format.ts
+export const BACKUP_FORMAT = 'character-gallery/backup';
+export const BACKUP_FORMAT_VERSION = 1;
+export const BACKUP_MIME_TYPE = 'application/x-ndjson';
+export const MAX_LINE_LENGTH = 128 * 1024 * 1024;
+export interface BackupHeader { format: string; formatVersion: number; exportedAt: string; appVersion: string; }
+export function createBackupHeader(exportedAt?: Date): BackupHeader;
+export function serializeCharacterRecord(character: Character): string;
+export function backupParts(characters: readonly Character[], exportedAt?: Date): string[];
+export function backupFileName(date: Date): string;   // character-gallery-backup-YYYY-MM-DD.jsonl
+export type BackupFileErrorKind = 'not-json-lines' | 'header' | 'format' | 'version' | 'duplicate-id' | 'line-too-long';
+export class BackupFileError extends Error { readonly kind: BackupFileErrorKind; }
+export interface UnreadableRecord { line: number; reason: string; }
+export interface ParsedBackup { header: BackupHeader; records: Character[]; unreadable: UnreadableRecord[]; }
+export interface ParseBackupOptions { maxLineLength?: number; }
+export function parseBackup(chunks: AsyncIterable<string>, options?: ParseBackupOptions): Promise<ParsedBackup>;
 
 // src/library-error.ts (re-exported by character-library.svelte.ts)
 export type LibraryErrorKind = 'unavailable' | 'missing-target' | 'write-failed';
@@ -196,9 +251,11 @@ export function sortCharacters(characters: Character[], sortMode: SortMode): Cha
 export function filterAndSortCharacters(characters: Character[], searchTerm: string, sortMode: SortMode): Character[];
 
 // src/download.ts
+export const OBJECT_URL_LIFETIME_MS = 60_000;
 export function parseDataUrl(dataUrl: string): { mime: string; base64: string; ext: string };
 export function base64ToBlob(base64: string, mime: string): Blob;
 export function sanitizeFilename(name: string): string;
+export function downloadBlob(blob: Blob, filename: string): void;
 export function downloadCharacterImage(character: Character): Promise<void>;
 ```
 
@@ -207,19 +264,25 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 `sanitizeFilename` returns `'character'` for an empty result or a reserved Windows base name (`con prn aux nul com1-9 lpt1-9`); it strips `\ / : * ? " < > |`, control chars, and trailing dots/spaces.
 
+`downloadBlob` is the one delivery path for the image export and the Backup: it clicks a temporary link and revokes the object URL after `OBJECT_URL_LIFETIME_MS`. A click is a handoff, not a saved file.
+
+`parseBackup` rejects the whole file with a `BackupFileError` for `not-json-lines`, `header`, `format`, `version`, `duplicate-id`, or `line-too-long`, before it returns one record. A line that is not a Character is listed in `unreadable` with its 1-based line number and its first failed rule. Version 1 is the only version it reads.
+
 ---
 
 ## 4. Component Contracts
 
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
-| `App` | none | Page shell. Constructs one `CharacterLibrary` and one `DownloadAttempts`, calls `initialize` on mount, disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, and the gallery. No storage knowledge, no record building. |
+| `App` | none | Page shell. Constructs one `CharacterLibrary`, one `DownloadAttempts`, and one `PersistentStorage`, calls `initialize` on mount, asks for persistent storage once when the library is ready, and disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, the gallery, and `BackupSection` below it. No storage knowledge, no record building. |
 | `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)`, `returnFocusCharacterId?` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. `returnFocusCharacterId` is the page's one-shot return request; `pendingReturn` is the Gallery's unspent copy. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
 | `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the frame from `width`/`height` through `image-frame.ts`, falling back to 4:3, and describes a failed image on the browse button or checkbox. |
 | `Lightbox` | `character: Character \| null`, `characters`, `onEdit(id)`, `onDelete(id)`, `onClose()`, `onSelect(id)`, `onDownload(character)`, `notice?` | `characters` is the filtered list, so arrows move within the filter. `notice` is the page's download notice snippet, rendered inside the dialog. |
 | `CharacterForm` | `editingCharacter: Character \| null`, `onSave(draft: CharacterDraft) => Promise<void>`, `onCancel()` | Mounted per Add or Edit session by `{#key}`. `onSave` rejects with a `LibraryError`; a `missing-target` rejection gets its own message. Imports the error from `library-error.ts`, not from the library module. |
+| `BackupSection` | `library: CharacterLibrary`, `readFile?`, `protection?: PersistentStorage` | A view: settles, snapshots, serializes, parses, asks the library to restore, and reports. `readFile` is the file-read seam. Never builds a record or calls storage. |
+| `StorageProtection` | `protection: PersistentStorage` | Renders the owner's message and **Try again**. Never asks the browser itself. |
 
 State ownership (one owner per item; do not duplicate it):
 
@@ -229,6 +292,8 @@ State ownership (one owner per item; do not duplicate it):
 | `CharacterLibrary` (internal) | operation chain, repair attempt keys, per-record image generations, database connection, lifetime counter | Private. Never assert on these in tests; observe the public state and the storage. |
 | `App` | `editingCharacter`, `showForm`, `formSession`, `deleteNotice`, `lightboxOpen`, the focused heading, one library instance, one download owner | Presentation and navigation only. `formSession` names the Add or Edit task that owns the form slot, so a save closes only the form that began it. `lightboxOpen` comes from `Gallery`, so the page never assumes a dialog it cannot see. |
 | `DownloadAttempts` | attempt and applied counters per Character, `notice` | Pending attempts and the notice survive Gallery teardown, so a failure can still reach the page while the form is open. |
+| `PersistentStorage` | `state`, `pending`, the spent page-lifetime request | Advisory only. One instance per page lifetime, because the Backup section unmounts with the library's status. Nothing is gated on it. |
+| `BackupSection` | `operation` (`'backup'` / `'restore'` / null), `failureMessage`, `statusMessage`; derived `busy`, `empty`, `disabled`, `reason`, `restoreDisabled` | One operation flag, so the two actions exclude each other. The library's returned counts are the report. |
 | `Gallery` | `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`; derived `selectedCharacter`, `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState` | View state. `selectedId` holds the open Character's identity, and `selectedCharacter` is derived from the canonical list. It also reports the dialog state upward. |
 | `Lightbox` | `dialogEl` (`$state`), `triggerButton`, `toreDown`, `failed` (Character id plus source); derived `index`, `hasPrevious`, `hasNext`, `imageUnavailable` | Dialog, focus, and the displayed image's failure. |
 | `CharacterForm` | `name`, `description`, `saving`, `saveError`, one `SelectedImage` | Draft and save locking. |
@@ -267,6 +332,12 @@ MUST hold after any change.
 22. No runtime dependencies. `dependencies` must stay absent unless there is an explicit decision to add one.
 23. `npm run check` stays at 0 errors and 0 warnings. Do not delete or weaken a test to make a change pass.
 24. A form's return handover happens once, after the destination renders, and resolves an edited Character by identity rather than by name. The browse card carries that identity as `data-character-id`, and `Gallery` matches the attribute rather than the rendered order. A later page of results never repeats the handover. A control the user focused outside the form while a save was pending keeps the focus, but a page with nothing focused hands over. A rejected save moves no focus to the Gallery. A save completion belongs to the form that started it, so a completion that arrives after the user opened another form leaves that form, its draft, and its focus alone. See `src/App.svelte` and `src/components/Gallery.svelte`.
+25. The Backup file is the version-1 contract in `src/backup-format.ts`: one header line, then one stored Character per line. **Format version 1 stays restorable.** A later app version keeps reading `formatVersion: 1`. An unknown or newer version is refused before any write, and the refusal names the declared version.
+26. A restored Character keeps its stored `id` and `createdAt`. Never mint an identity or a creation time on Restore, and never write a record over an existing identity.
+27. Restore is additive and idempotent. A record whose identity is already in the canonical list is skipped, so re-Restoring one Backup converges and a stale Backup never rolls back local work. Overwrite or rollback Restore is out of scope.
+28. One Restore commits every admitted record or none. The batch goes to `dbPutMany` in one transaction, the canonical list is published only after that commit, and a rejection leaves storage and the list unchanged. The counts `restore` returns are the counts it applied.
+29. No single string spans the library in either direction. Export writes per-record parts into one Blob, and import reads chunks and holds at most one unfinished line. The format module never touches storage or the DOM, and the library stays the only writer: a Backup reads the canonical list only after `settled()`.
+30. A structural file failure writes nothing. A record that fails the record matrix is skipped and reported with its line number and its first failed rule, never dropped silently. The whole file is read and validated before the first write.
 
 ---
 
@@ -290,6 +361,11 @@ MUST hold after any change.
 | Theme color | `src/style.css` (`@theme` tokens) | — |
 | Id format | `src/id.ts` | `tests/id.test.ts` |
 | Storage semantics | `src/db.ts` | `tests/db.test.ts` |
+| The Backup file format, its header, or the record matrix | `src/backup-format.ts` | `tests/backup-format.test.ts` |
+| The Restore rule, its counts, or the settle barrier | `src/character-library.svelte.ts` | `tests/character-library.test.ts` |
+| The Backup or Restore view, its counts, or its feedback | `src/components/BackupSection.svelte` | `tests/backup-section.test.ts`, `tests/restore-section.test.ts` |
+| The storage-protection answer or its line | `src/persistent-storage.svelte.ts`, `src/components/StorageProtection.svelte` | `tests/storage-protection.test.ts` |
+| The delivery of a downloaded Blob | `src/download.ts` | `tests/download-blob.test.ts`, `tests/download.test.ts` |
 
 ---
 
@@ -309,6 +385,8 @@ Helpers available:
 - `tests/character-form.test.ts`: a controlled `FileReader` and `Image` for the mounted form. It also rejects with a `LibraryError` to witness the missing-target message.
 - A manual real-browser smoke check ran in headless Chrome 156 on Windows against the production build. It covers real file reading and image decoding through programmatic file-input assignment, same-file recovery, and the accessible feedback markup. It does not exercise the native picker dialog or a screen-reader announcement. It is not part of `npm test`; see WIKI section 13.
 - A second manual check in headless Chrome 156.0.8078.49 on Windows 11 covers the Gallery states, card and lightbox image failures with measured frame geometry, and the download notice across page, dialog, and form, including measured contrast. Android, Firefox, Safari, screen readers, and save completion stay unverified. The numbers and limits are in WIKI section 13.
+- A real-browser recheck in headless Edge 156 on Windows covers Backup, Restore, a 267 MB library, the storage line, and the keyboard path. Its limits and its numbers are in `docs/verification/72-backup-restore-browser-evidence.md` and WIKI section 13. It confirms the download event and the driver's bytes, not a file that the browser or the operating system wrote.
+- `tests/backup-section.test.ts` mocks `src/download.ts` and passes a `readFile` seam. `tests/restore-section.test.ts` feeds chunks through the same seam. `tests/storage-protection.test.ts` injects `persisted` and `persist` promises, or `undefined` for a browser that reports neither.
 - `settle()` pattern (copy from `tests/gallery-scroll.test.ts`): `flushSync()` + `await tick()` in a loop. Use it after any change that starts a transition.
 - `vi.waitFor(fn, { timeout, interval })` for promise-driven UI (database reads, `FileReader`).
 
@@ -362,12 +440,24 @@ Pitfalls:
 | `Gallery.svelte`: `returnFocusCharacterId` is the page's request, `pendingReturn` is its unspent copy | The request must be spent exactly once. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
 | `CharacterForm.svelte`: the heading carries `focus:ring-2` besides the shared outline | A form opened with the pointer does not match `:focus-visible`, so the unlayered outline is absent and the ring is the only indicator. |
 | `tests/setup.ts` shims | jsdom lacks `matchMedia`, WAAPI, and real `<dialog>` methods. The shims are approximations, not test logic. |
+| `backup-format.ts`: per-record parts, one line each | A single joined string would hold the whole library in memory and fail on a large one. `backupParts` returns separate strings and the reader buffers one line. |
+| `db.ts`: `dbPutMany` aborts when a `put` throws synchronously | Earlier records are already queued in the transaction. Without the abort they would commit alone, so the caller would report one outcome and store another. |
+| `character-library.svelte.ts`: `settled()` queues an empty step on the chain | It is the read barrier that makes a Backup wait for accepted writes. It must not read storage again or wait for background measurement. |
+| `BackupSection.svelte`: the one-task-boundary delay before serializing | A Backup with nothing pending would otherwise build the whole file before the busy status could render. |
+| `persistent-storage.svelte.ts`: the request belongs to the page, not the section | The Backup section unmounts and mounts with the library's status. A remount must not ask the browser a second time. |
 
 ---
 
 ## 9. Known Gaps (do not assume these exist)
 
-- No import/export of character cards; no SillyTavern card format support.
+- No SillyTavern card interchange and no other tool's file format. A Backup is this app's own versioned format, and Restore reads that format only.
+- No overwrite or rollback Restore, no per-Character Backup, no per-record selection during Restore, no checksum, no compression, and no ZIP container. Restore is additive and skips an identity the library already holds.
+- No cancel control for an in-flight Restore and no cross-tab synchronization.
+- A Backup handoff is not proof that the browser or the operating system saved the file. Nothing reports a saved file, and a failure after the handoff is invisible to the app.
+- A Restore report proves what the library committed, not that an image will display. Restore validates the image data URL's shape and never decodes the bytes, so a byte-corrupt image restores and shows the existing image fallback.
+- A Restore holds the admitted records in memory until its one transaction commits, because an IndexedDB transaction cannot stay open across a stream.
+- Browser storage protection is advisory. A denial, a browser that does not report protection, or a failed check changes nothing about Backup, Restore, or normal use, and the app cannot force protection.
+- Android, Firefox, Safari, physical touch, and real screen-reader sessions are unverified for Backup and Restore. The recheck used headless Edge on one desktop viewport and intercepted the native dialog and file chooser.
 - No thumbnails or blob storage; images are base64 strings held in memory for every record.
 - No per-image retry. A failed image shows "Image unavailable" in its reserved frame until the source is replaced or the page reloads; the card keeps its normal browse, selection, and Edit paths.
 - Download feedback only covers a failure the app can detect while preparing the file. A browser handoff is not proof the file was saved, so nothing reports a saved file.
