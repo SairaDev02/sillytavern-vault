@@ -2,6 +2,8 @@
   import type { CharacterLibrary } from '../character-library.svelte';
   import { BACKUP_MIME_TYPE, backupFileName, backupParts } from '../backup-format';
   import { downloadBlob } from '../download';
+  import { PersistentStorage } from '../persistent-storage.svelte';
+  import StorageProtection from './StorageProtection.svelte';
 
   /**
    * A Backup or a Restore. This slice only runs a Backup, but one flag owns the
@@ -19,7 +21,13 @@
     `Backup handed to your browser for download as ${fileName}. ` +
     'Your browser or operating system chooses where it saves it.';
 
-  let { library }: { library: CharacterLibrary } = $props();
+  // The page owns the browser-protection state, so the once-per-page-lifetime
+  // request survives this section unmounting and mounting again. A section
+  // mounted on its own still renders: its fresh owner has no answer yet.
+  let {
+    library,
+    protection = new PersistentStorage(),
+  }: { library: CharacterLibrary; protection?: PersistentStorage } = $props();
 
   let operation = $state<Operation | null>(null);
   let failureMessage = $state<string | null>(null);
@@ -111,4 +119,8 @@
   <p role="status" aria-live="polite" aria-atomic="true" class="mt-3 text-sm text-zinc-300">
     {statusMessage}
   </p>
+
+  <!-- Last in the section, with its own polite line, so the storage answer
+       never competes with the Backup feedback above it. -->
+  <StorageProtection {protection} />
 </section>
