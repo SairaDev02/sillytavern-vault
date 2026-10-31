@@ -975,6 +975,7 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 - A Restore report proves what the library committed, not that an image will display. Restore checks the image data URL's shape and never decodes it, so a byte-corrupt image restores a Character whose card shows the existing image fallback.
 - A Restore holds the admitted records in memory until one transaction commits, because an IndexedDB transaction cannot stay open across a stream. The cost is proportional to the file, not to one string.
 - A Restore has no cancel control, and there is no overwrite or rollback Restore, no per-Character Backup, no checksum, no compression, and no cross-tab synchronization.
+- Restore refuses a file whose single line is longer than the reader's 128 MiB bound (`MAX_LINE_LENGTH`). Backup sets no per-image size limit, so the app can write a record that exceeds that bound, and that Backup cannot be restored here.
 - Browser storage protection is advisory. A denial, an unsupported browser, or a failed check changes nothing about Backup, Restore, or normal use, and the app cannot force protection.
 - The database connection stays open for the lifetime of the page. `CharacterLibrary.dispose` closes it after the operation chain drains, which is correct for a single-page app. A future schema change in another tab waits for the reload.
 - Same-page ordering only. The library does not synchronize with another tab that writes the same database.
