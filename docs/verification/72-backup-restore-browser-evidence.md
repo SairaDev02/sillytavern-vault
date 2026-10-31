@@ -133,7 +133,7 @@ Restore this Backup?
 0 records could not be read and will be skipped.
 ```
 
-  Dismissing it produced `Restore cancelled. Nothing was written.` The library stayed at 3 records and the input was reset.
+  Dismissing it produced `Restore canceled. Nothing was written.` The library stayed at 3 records and the input was reset. The status line was respelled from `cancelled` to `canceled` after the run, to follow the repository's American English rule. Nothing else in this observation changed, and the flow was not run again.
 - Attempt 2 selected the same file again, and the same confirmation appeared again. That shows the input had been reset. Dismissed again: nothing was written.
 - Attempt 3 accepted the same confirmation: `Restore finished: 1 added, 3 already in your library and kept.` The library then held Aurora, Bramble, Cinder, and Dusk.
 
@@ -210,11 +210,11 @@ The polite status region and its text node exist before any message arrives, so 
 
 ## 9. Defects
 
-**No defect was found in the shipped Backup or Restore behaviour.** Every flow in section 3, section 4, section 5, and section 6 matched the specification and the format contract. This branch therefore adds no source change and no test.
+**No defect was found in the shipped Backup or Restore behavior.** Every flow in section 3, section 4, section 5, and section 6 matched the specification and the format contract. This branch therefore adds no source change and no test.
 
 The page console held no Backup or Restore failure. Its only app log was the expected `Failed to restore a Backup: BackupFileError: The file is not a Character Gallery Backup: its first line is not JSON.` from section 3.5.
 
-The console also held 161 `WebSocket connection to 'ws://localhost:5201/' failed` errors and two `[vite] server connection lost` lines from the Vite development client. They come from the development server's hot-reload socket in this session, and they do not touch the app's behaviour: every flow in this file ran while the page was fully loaded and before or after those entries. They are a development-server detail, not a product defect.
+The console also held 161 `WebSocket connection to 'ws://localhost:5201/' failed` errors and two `[vite] server connection lost` lines from the Vite development client. They come from the development server's hot-reload socket in this session, and they do not touch the app's behavior: every flow in this file ran while the page was fully loaded and before or after those entries. They are a development-server detail, not a product defect.
 
 ## 10. What this does not prove
 
@@ -224,7 +224,7 @@ The console also held 161 `WebSocket connection to 'ws://localhost:5201/' failed
 - **The storage answer is this profile's answer.** `navigator.storage.persist()` uses browser heuristics, so "not protected" here does not mean another profile or another browser would answer the same. The other three states were not produced by a real browser in this run.
 - **The dialog was intercepted.** The confirmation text is Playwright's report of the real `window.confirm` message, and the outcome came from the driver's accept and dismiss. Operating the dialog's buttons with the keyboard was not verified.
 - **The file chooser was intercepted in most flows.** Except for the keyboard walk, files were set on the input directly. The operating system's file picker, its filters, and dragging a file onto it were not exercised.
-- **No screen reader was running.** Section 7 records the accessibility tree and the live-region attributes. Speech output, announcement order, and interruption behaviour are unverified.
+- **No screen reader was running.** Section 7 records the accessibility tree and the live-region attributes. Speech output, announcement order, and interruption behavior are unverified.
 - **No assistive-technology or WCAG conformance is claimed.** Nothing here supports a conformance statement.
 - **Touch, tablet, and small viewports were not tested.** The run used one 1280 x 720 desktop viewport.
 

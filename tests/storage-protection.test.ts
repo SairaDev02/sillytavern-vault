@@ -11,7 +11,7 @@ import type { Character } from '../src/types';
 import { makeCharacter } from './fixtures';
 
 // The Backup's own delivery seam, so this file can prove a denied protection
-// answer does not gate a Backup. The helper's behaviour is pinned elsewhere.
+// answer does not gate a Backup. The helper's behavior is pinned elsewhere.
 vi.mock('../src/download', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/download')>()),
   downloadBlob: vi.fn(),
