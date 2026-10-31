@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany, STORE_NAME } from '../src/db';
+import {
+  openDB,
+  dbAdd,
+  dbGetAll,
+  dbDelete,
+  dbDeleteMany,
+  dbPutMany,
+  STORE_NAME,
+} from '../src/db';
 import { generateId } from '../src/id';
 import type { Character } from '../src/types';
 
@@ -218,5 +226,109 @@ describe('IndexedDB Character Store', () => {
       expect(all).toHaveLength(3);
       expect(all.map((character) => character.name).sort()).toEqual(['First', 'Second', 'Third']);
     });
+  });
+});
+
+/**
+ * Count the transactions a storage helper creates, so "one transaction for the
+ * whole batch" is observed at the storage seam rather than inferred.
+ */
+function countTransactions(db: IDBDatabase): { count: () => number; restore: () => void } {
+  const originalTransaction = db.transaction.bind(db);
+  let count = 0;
+
+  (db as unknown as { transaction: unknown }).transaction = (...args: unknown[]) => {
+    count += 1;
+    return (originalTransaction as (...a: unknown[]) => IDBTransaction)(...args);
+  };
+
+  return {
+    count: () => count,
+    restore() {
+      delete (db as unknown as Record<string, unknown>).transaction;
+    },
+  };
+}
+
+/** A database whose store rejects a duplicate `name` asynchronously. */
+async function openUniqueNameDB(name: string): Promise<IDBDatabase> {
+  return await new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const store = request.result.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      store.createIndex('name', 'name', { unique: true });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+describe('bulk write', () => {
+  let db: IDBDatabase | null = null;
+
+  beforeEach(async () => {
+    db = await openDB(getTestDbName());
+  });
+
+  it('writes every record in one transaction', async () => {
+    const counter = countTransactions(db!);
+    const records = [
+      makeCharacter({ name: 'First' }),
+      makeCharacter({ name: 'Second' }),
+      makeCharacter({ name: 'Third' }),
+    ];
+
+    await dbPutMany(db!, records);
+    counter.restore();
+
+    expect(counter.count()).toBe(1);
+    const all = await dbGetAll<Character>(db!);
+    expect(all).toHaveLength(3);
+    expect(all.map((character) => character.name).sort()).toEqual(['First', 'Second', 'Third']);
+  });
+
+  it('writes nothing when a later put throws while the batch is queued', async () => {
+    // A function cannot be structured-cloned, so `put` throws synchronously
+    // after the first record is already queued. The earlier request must not
+    // commit on its own.
+    const records = [
+      makeCharacter({ name: 'Queued first' }),
+      { ...makeCharacter(), image: () => 'not clonable' } as unknown as Character,
+    ];
+
+    await expect(dbPutMany(db!, records)).rejects.toBeTruthy();
+
+    expect(await dbGetAll<Character>(db!)).toEqual([]);
+  });
+
+  it('writes nothing when a queued request fails asynchronously', async () => {
+    const uniqueDb = await openUniqueNameDB(getTestDbName());
+    const records = [
+      makeCharacter({ name: 'Same name' }),
+      makeCharacter({ name: 'Same name' }),
+    ];
+
+    // The duplicate name fails the unique index at request time, after the
+    // first record is queued, so the transaction aborts on its own.
+    await expect(dbPutMany(uniqueDb, records)).rejects.toBeTruthy();
+
+    expect(await dbGetAll<Character>(uniqueDb)).toEqual([]);
+    uniqueDb.close();
+  });
+
+  it('rejects an explicitly aborted batch and rolls back every record', async () => {
+    const kept = makeCharacter({ name: 'Already stored' });
+    await dbAdd(db!, kept);
+
+    const arm = abortNextTransaction(db!, 2);
+    await expect(
+      dbPutMany(db!, [makeCharacter({ name: 'First' }), makeCharacter({ name: 'Second' })])
+    ).rejects.toBeTruthy();
+    arm.restore();
+
+    const all = await dbGetAll<Character>(db!);
+    expect(all).toHaveLength(1);
+    expect(all[0].name).toBe('Already stored');
+    expect(arm.events).toEqual([['abort']]);
   });
 });
