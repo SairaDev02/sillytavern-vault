@@ -38,6 +38,10 @@ describe('parseDataUrl', () => {
     const withCharset = parseDataUrl('data:image/png;charset=utf-8;base64,AAAA');
     expect(withCharset.mime).toBe('image/png');
     expect(withCharset.base64).toBe('AAAA');
+
+    const svg = parseDataUrl('data:IMAGE/SVG+XML;charset=utf-8;BASE64,PHN2Zy8+');
+    expect(svg.mime).toBe('image/svg+xml');
+    expect(svg.ext).toBe('svg');
   });
 
   it('should keep commas that belong to the payload', () => {
@@ -50,6 +54,20 @@ describe('parseDataUrl', () => {
 
   it('should throw on a non-image data URL', () => {
     expect(() => parseDataUrl('data:text/plain;base64,SGk=')).toThrow(/Unsupported data URL type/);
+  });
+
+  it('should throw on an image type with no subtype', () => {
+    expect(() => parseDataUrl('data:image/;base64,AAAA')).toThrow(/Unsupported data URL type/);
+    expect(() => parseDataUrl('data:image/ ;base64,AAAA')).toThrow(/Unsupported data URL type/);
+  });
+
+  it('should throw on an image type whose subtype is not a token', () => {
+    expect(() => parseDataUrl('data:image/png png;base64,AAAA')).toThrow(
+      /Unsupported data URL type/
+    );
+    expect(() => parseDataUrl('data:image/png/foo;base64,AAAA')).toThrow(
+      /Unsupported data URL type/
+    );
   });
 
   it('should throw when the payload is not base64 encoded', () => {

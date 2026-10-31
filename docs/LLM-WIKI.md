@@ -230,10 +230,12 @@ export const MAX_LINE_LENGTH = 128 * 1024 * 1024;
 export interface BackupHeader { format: string; formatVersion: number; exportedAt: string; appVersion: string; }
 export function createBackupHeader(exportedAt?: Date): BackupHeader;
 export function serializeCharacterRecord(character: Character): string;
-export function backupParts(characters: readonly Character[], exportedAt?: Date): string[];
+export interface BackupPartsOptions { maxLineLength?: number; }
+export function backupParts(characters: readonly Character[], exportedAt?: Date, options?: BackupPartsOptions): string[];
 export function backupFileName(date: Date): string;   // character-gallery-backup-YYYY-MM-DD.jsonl
 export type BackupFileErrorKind = 'not-json-lines' | 'header' | 'format' | 'version' | 'duplicate-id' | 'line-too-long';
 export class BackupFileError extends Error { readonly kind: BackupFileErrorKind; }
+export class BackupRecordError extends Error {}
 export interface UnreadableRecord { line: number; reason: string; }
 export interface ParsedBackup { header: BackupHeader; records: Character[]; unreadable: UnreadableRecord[]; }
 export interface ParseBackupOptions { maxLineLength?: number; }
@@ -277,7 +279,7 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
-| `App` | none | Page shell. Constructs one `CharacterLibrary`, one `DownloadAttempts`, and one `PersistentStorage`, calls `initialize` on mount, asks for persistent storage once when the library is ready, and disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, the gallery, and `BackupSection` below it. No storage knowledge, no record building. |
+| `App` | none | Page shell. Constructs one `CharacterLibrary`, one `DownloadAttempts`, and one `PersistentStorage`, calls `initialize` on mount, asks for persistent storage once when the library is ready without showing a notice of the app's own (the browser may show its own permission prompt), and disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, the gallery, and `BackupSection` below it. No storage knowledge, no record building. |
 | `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)`, `returnFocusCharacterId?` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. `returnFocusCharacterId` is the page's one-shot return request; `pendingReturn` is the Gallery's unspent copy. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
@@ -339,7 +341,7 @@ MUST hold after any change.
 26. A restored Character keeps its stored `id` and `createdAt`. Never mint an identity or a creation time on Restore, and never write a record over an existing identity.
 27. Restore is additive and idempotent. A record whose identity is already in the canonical list is skipped, so re-Restoring one Backup converges and a stale Backup never rolls back local work. Overwrite or rollback Restore is out of scope. The rule is the exported pure `planRestore`: `restore` recomputes it on its chain and the Backup section previews the confirmation with it, so one function states the rule.
 28. One Restore commits every admitted record or none. The batch goes to `dbPutMany` in one transaction, the canonical list is published only after that commit, and a rejection leaves storage and the list unchanged. `restore` returns `RestoreCounts`, and those are the counts it applied.
-29. No single string spans the library in either direction. Export writes per-record parts into one Blob, and import reads chunks and holds at most one unfinished line. The format module never touches storage or the DOM, and the library stays the only writer: a Backup reads the canonical list only after `settled()`.
+29. No single string spans the library in either direction. Export writes per-record parts into one Blob, and import reads chunks and holds at most one unfinished line. The format module never touches storage or the DOM, and the library stays the only writer: a Backup reads the canonical list only after `settled()`. The line bound (`MAX_LINE_LENGTH`) counts UTF-16 code units of the decoded line, not bytes, and Backup applies the same bound to every serialized Character before the handoff: one over it refuses the whole Backup, naming that Character. Never bound one direction only.
 30. A structural file failure writes nothing. A record that fails the record matrix is skipped and reported with its line number and its first failed rule, never dropped silently. The whole file is read and validated before the first write.
 
 ---
@@ -365,6 +367,7 @@ MUST hold after any change.
 | Id format | `src/id.ts` | `tests/id.test.ts` |
 | Storage semantics | `src/db.ts` | `tests/db.test.ts` |
 | The Backup file format, its header, or the record matrix | `src/backup-format.ts` | `tests/backup-format.test.ts` |
+| The line bound, in either direction | `src/backup-format.ts` (`MAX_LINE_LENGTH`, the writer's per-record check) | `tests/backup-format.test.ts`, `tests/backup-length.test.ts` |
 | The Restore rule, its counts, or the settle barrier | `src/character-library.svelte.ts` | `tests/character-library.test.ts` |
 | The Backup or Restore view, its counts, or its feedback | `src/components/BackupSection.svelte` | `tests/backup-section.test.ts`, `tests/restore-section.test.ts` |
 | The storage-protection answer or its line | `src/persistent-storage.svelte.ts`, `src/components/StorageProtection.svelte` | `tests/storage-protection.test.ts` |
@@ -443,7 +446,7 @@ Pitfalls:
 | `Gallery.svelte`: `returnFocusCharacterId` is the page's request, `pendingReturn` is its unspent copy | The request must be spent exactly once. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
 | `CharacterForm.svelte`: the heading carries `focus:ring-2` besides the shared outline | A form opened with the pointer does not match `:focus-visible`, so the unlayered outline is absent and the ring is the only indicator. |
 | `tests/setup.ts` shims | jsdom lacks `matchMedia`, WAAPI, and real `<dialog>` methods. The shims are approximations, not test logic. |
-| `backup-format.ts`: per-record parts, one line each | A single joined string would hold the whole library in memory and fail on a large one. `backupParts` returns separate strings and the reader buffers one line. |
+| `backup-format.ts`: per-record parts, one line each | A single joined string would hold the whole library in memory and fail on a large one. `backupParts` returns separate strings and the reader buffers one line. The writer applies the reader's bound to each record line, so it does not hand off a Backup with a line Restore would reject as too long. |
 | `db.ts`: `dbPutMany` aborts when a `put` throws synchronously | Earlier records are already queued in the transaction. Without the abort they would commit alone, so the caller would report one outcome and store another. |
 | `character-library.svelte.ts`: `settled()` queues an empty step on the chain | It is the read barrier that makes a Backup wait for accepted writes. It must not read storage again or wait for background measurement. |
 | `BackupSection.svelte`: the one-task-boundary delay before serializing | A Backup with nothing pending would otherwise build the whole file before the busy status could render. |
@@ -459,7 +462,7 @@ Pitfalls:
 - A Backup handoff is not proof that the browser or the operating system saved the file. Nothing reports a saved file, and a failure after the handoff is invisible to the app.
 - A Restore report proves what the library committed, not that an image will display. Restore validates the image data URL's shape and never decodes the bytes, so a byte-corrupt image restores and shows the existing image fallback.
 - A Restore holds the admitted records in memory until its one transaction commits, because an IndexedDB transaction cannot stay open across a stream.
-- Restore refuses a file with one line longer than `MAX_LINE_LENGTH` (128 MiB), so one over-long record rejects the whole file. Backup sets no per-image size limit, so the app can write a Backup that Restore then refuses.
+- One Character can be too large to move. `MAX_LINE_LENGTH` (128 × 1024 × 1024) counts UTF-16 code units of one decoded line, not bytes in the file. Restore refuses a file with a longer line, and Backup refuses before the handoff when any serialized Character exceeds it, naming that Character. No other per-image size limit exists.
 - Browser storage protection is advisory. A denial, a browser that does not report protection, or a failed check changes nothing about Backup, Restore, or normal use, and the app cannot force protection.
 - Android, Firefox, Safari, physical touch, and real screen-reader sessions are unverified for Backup and Restore. The recheck used headless Edge on one desktop viewport and intercepted the native dialog and file chooser.
 - No thumbnails or blob storage; images are base64 strings held in memory for every record.

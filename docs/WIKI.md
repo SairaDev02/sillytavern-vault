@@ -107,7 +107,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/types.ts` | The `Character` interface. |
 | `src/character-library.svelte.ts` | `CharacterLibrary`, the only writer of Character records and the owner of the canonical list. |
 | `src/library-error.ts` | `LibraryError` and `LibraryErrorKind`, with no storage imports, so a component can branch on an error kind without the database. |
-| `src/backup-format.ts` | The version-1 Backup file: header, file name, the version rule, the record matrix, and the streaming reader. No storage and no DOM. |
+| `src/backup-format.ts` | The version-1 Backup file: header, file name, the version rule, the record matrix, the line bound in both directions, and the streaming reader. No storage and no DOM. |
 | `src/db.ts` | IndexedDB schema and the read and write functions. |
 | `src/id.ts` | `generateId`. |
 | `src/image.ts` | `measureImage`, which reads the intrinsic size of an image. |
@@ -126,7 +126,7 @@ A rejection reaches the form, which keeps the draft and shows its own message. A
 | `src/components/CharacterForm.svelte` | Add and edit form. |
 | `src/components/BackupSection.svelte` | The Backup and restore section below the Gallery: the two actions, the counts, the confirmation, and the section's own feedback. |
 | `src/components/StorageProtection.svelte` | The browser storage-protection line and the Try again control. |
-| `tests/` | Vitest files and helpers. See section 11. |
+| `tests/` | Vitest files and helpers. See section 13. |
 | `scripts/start.mjs` | The `npm start` launcher. It checks the age of `dist/`, builds when needed, and serves the result. |
 | `scripts/ci-gate.mjs` | The fail-closed check gate. It reads the triggering run's job and step conclusions, requires the steps declared in `.github/required-contexts.json`, and publishes the required check. See `docs/branch-gate.md`. |
 | `start.cmd` | Double-click launcher for Windows. It installs dependencies on the first run. |
@@ -400,7 +400,14 @@ export interface BackupHeader {
 }
 export function createBackupHeader(exportedAt?: Date): BackupHeader;
 export function serializeCharacterRecord(character: Character): string;
-export function backupParts(characters: readonly Character[], exportedAt?: Date): string[];
+export interface BackupPartsOptions {
+  maxLineLength?: number;
+}
+export function backupParts(
+  characters: readonly Character[],
+  exportedAt?: Date,
+  options?: BackupPartsOptions
+): string[];
 export function backupFileName(date: Date): string;
 export type BackupFileErrorKind =
   | 'not-json-lines'
@@ -412,6 +419,7 @@ export type BackupFileErrorKind =
 export class BackupFileError extends Error {
   readonly kind: BackupFileErrorKind;
 }
+export class BackupRecordError extends Error {}
 export interface UnreadableRecord {
   line: number;
   reason: string;
@@ -438,6 +446,8 @@ The module owns the file and nothing else. It does not import `db.ts`, a compone
 - `backupParts` returns the header line and one line per record as separate strings. A caller can build a Blob from the array, so no single string spans the library.
 - `backupFileName` builds `character-gallery-backup-<YYYY-MM-DD>.jsonl` from the local calendar day.
 - `parseBackup` reads the file line by line and holds at most one unfinished line. It strips a byte-order mark from the first line and a carriage return from the end of each line, skips whitespace-only lines, and refuses a line over `maxLineLength`.
+- `MAX_LINE_LENGTH` bounds one decoded line by its JavaScript string length, which counts UTF-16 code units, not bytes. A line of non-ASCII text can carry more bytes than its length, so the bound is not a byte limit.
+- Backup applies that same bound to every serialized Character, measured without the newline the writer adds, so a line exactly at the bound is accepted. A longer one throws `BackupRecordError` before any part reaches the browser: the whole Backup is refused, because a file missing that Character would be a silently partial Backup. The message names the Character, abbreviating very long names, and says that nothing was downloaded and the library is unchanged. A record-preparation failure uses the same error type without claiming it was too large.
 - A structural failure rejects the whole file before it yields one record: content that is not JSON Lines, an unreadable header, another format, an unsupported version, two lines that name one identity, or a line longer than the reader will hold. A line that fails the record matrix still names the identity it carries, so it counts toward the duplicate rule.
 - A line that is not a Character is skipped and listed in `unreadable` with its 1-based line number and its first failed rule. The record matrix checks `id`, `name`, `description`, `createdAt`, the image data URL shape, and the size pair. Unknown extra fields are ignored.
 - The image rule checks the data URL's shape only: an `image/*` MIME type, the `base64` flag, and a non-empty payload. The bytes are not decoded.
@@ -497,7 +507,7 @@ One instance belongs to one page lifetime, beside the Character library. The pag
 - `retry` makes one user-initiated request. A call while one is pending adds nothing.
 - `state` is `unchecked` until the first answer, then `protected`, `not-protected`, `unsupported`, or `failed`. `unsupported` means the browser does not report protection. `failed` means the check threw.
 - `message` is one sentence for each answer and empty while `state` is `unchecked`. `canRetry` is true only for `not-protected` and `failed`.
-- The request never rejects: a thrown check is the `failed` answer. Nothing blocks the page, and no start-up notice is shown.
+- The request never rejects: a thrown check is the `failed` answer. Nothing blocks the page, and the app shows no notice of its own at start-up. The browser may show its own permission prompt when the request is made.
 - The state is advisory. A denial, an unsupported browser, or a failed check changes nothing about Backup, Restore, or normal use. No caller may make either operation depend on it.
 
 `tests/storage-protection.test.ts` injects each answer through the optional dependencies and asserts the line, the retry control, the one request per page lifetime, and the operations staying available.
@@ -669,11 +679,11 @@ Props: `protection`, a `PersistentStorage` owner. The component renders the labe
 
 **Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
-**Backup.** The person presses **Create Backup**. The section waits for `library.settled()`, so a Character saved a moment earlier is in the file, then snapshots the canonical list and builds one line per Character as separate parts. It names the file with the local date and hands the Blob to `downloadBlob`. The status reports a handoff to the browser. The app cannot observe whether a file was saved, so it never reports one.
+**Backup.** The person presses **Create Backup**. The section waits for `library.settled()`, so a Character saved a moment earlier is in the file, then snapshots the canonical list and builds one line per Character as separate parts. Each serialized Character is checked against the reader's line bound first: one over it stops the Backup with an alert that names that Character, and nothing is handed to the browser. Otherwise the section names the file with the local date and hands the Blob to `downloadBlob`. The status reports a handoff to the browser. The app cannot observe whether a file was saved, so it never reports one.
 
 **Restore.** The person chooses a file in the labelled native input. The section reads and validates the whole file first, so a structural failure writes nothing and names the problem. It waits for `settled` and previews the additions, the kept records, and the unreadable lines with `planRestore`. With at least one addition it asks for one native confirmation that states those counts; Cancel writes nothing. `CharacterLibrary.restore` then applies the same collision rule on its own chain, writes the batch in one transaction, publishes it in one step, and returns the applied counts that the section reports. The Gallery view keeps its search, sort, paging, and selection, and an open form keeps its draft.
 
-**Persistent storage.** After the library first becomes ready, the page asks the browser once and the answer waits in the Backup section. The line states which answer arrived, and **Try again** makes one user-initiated request. The answer is advisory: neither Backup nor Restore depends on it.
+**Persistent storage.** After the library first becomes ready, the page asks the browser once and the answer waits in the Backup section. The app shows no notice of its own at start-up, though the browser may show its own permission prompt. The line states which answer arrived, and **Try again** makes one user-initiated request. The answer is advisory: neither Backup nor Restore depends on it.
 
 ## 11. Styling and Layout
 
@@ -756,6 +766,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, accessible feedback, entry focus on the heading, and the save-start handover for Save activation and Enter from Name. |
 | `tests/backup-format.test.ts` | The version-1 file at the format seam: the header, a record round trip, line reassembly across chunk boundaries, CRLF, a byte-order mark, a trailing newline and blank lines, the field and image matrix, the size pair, duplicate identities, the line bound, the skipped-record report, and every structural refusal. |
 | `tests/backup-section.test.ts` | The mounted Backup section: the ready-only mount, the empty-library and busy reasons, the settle barrier, the file name and MIME type, the download handoff, and the polite and alert feedback. |
+| `tests/backup-length.test.ts` | The Backup side of the line bound at the format seam: a line exactly at the bound, one past it, an oversized record that is not the first, the refusal message and long-name abbreviation, record-preparation failure, and the caller's records left untouched. |
 | `tests/restore-section.test.ts` | The mounted Restore: the labelled native input, the counts, the native confirmation, Cancel, an empty restore, a structural refusal, a skipped record, the reset input, the untouched Gallery view and form draft, and a write failure that leaves the library unchanged. |
 | `tests/storage-protection.test.ts` | The protection owner and its line: each injected answer, one request per page lifetime, the user-initiated retry, and a denial that leaves Backup and Restore working. |
 | `tests/download-blob.test.ts` | The shared delivery path: the object URL, the temporary link, and the delayed release. |
@@ -948,7 +959,7 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 | Commit, then publish | The library writes to storage first and publishes the committed record into its own list second. There is no full reload after a mutation, so a save cannot show a record that was never stored, and an older result cannot land after a newer one. A start-up read waits for accepted writes, then runs outside the chain, and its publication joins the chain. |
 | Size repair merges into the current record | The repair decode is slow and the user can edit meanwhile. The queued write re-checks the record and merges the measured pair into it, so a newer name or description always wins. |
 | Repair attempts are keyed by identity and image generation | The attempt must survive an ordinary publication, be repeated for a replaced image, and start fresh on a new page lifetime. Keying by the image data itself would treat two identical images as one. |
-| One JSON Lines file for a Backup | A single JSON document must be held as one string in both directions and failed on a 400 MB library. Per-record lines stream, so the file size the person actually has is not a ceiling. See `docs/adr/0002-character-library-backup-and-restore.md`. |
+| One JSON Lines file for a Backup | A single JSON document must be held as one string in both directions and failed on a 400 MB library. Per-record lines avoid a single string spanning the library. Browser memory and storage still limit the total file size, and one Character over the reader's line bound cannot be backed up (section 17). See `docs/adr/0002-character-library-backup-and-restore.md`. |
 | The Backup format is a separate module | The header, the version rule, and the record matrix are the file's contract. Keeping them out of `db.ts`, the library, and the view lets a test read and write a file with no browser and no storage. |
 | Restore is additive and the library's copy wins | A stale Backup must never roll back newer local work, and re-Restoring one file must converge. Overwrite and per-Character selection are a different feature. |
 | One transaction for the Restore batch | A half-restored library would report success over an incomplete recovery. The bulk helper writes every admitted record or none, and the canonical list is published only after the commit. |
@@ -975,7 +986,7 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 - A Restore report proves what the library committed, not that an image will display. Restore checks the image data URL's shape and never decodes it, so a byte-corrupt image restores a Character whose card shows the existing image fallback.
 - A Restore holds the admitted records in memory until one transaction commits, because an IndexedDB transaction cannot stay open across a stream. The cost is proportional to the file, not to one string.
 - A Restore has no cancel control, and there is no overwrite or rollback Restore, no per-Character Backup, no checksum, no compression, and no cross-tab synchronization.
-- Restore refuses a file whose single line is longer than the reader's 128 MiB bound (`MAX_LINE_LENGTH`). Backup sets no per-image size limit, so the app can write a record that exceeds that bound, and that Backup cannot be restored here.
+- The Backup file has one per-record ceiling. A line is bounded by `MAX_LINE_LENGTH`, which counts the decoded line's JavaScript string length in UTF-16 code units (128 × 1024 × 1024), not bytes in the file. Restore refuses a file with a longer line, and Backup checks the same bound on each serialized Character first: a Character over it stops the Backup before any handoff, with a message that names it. Backup sets no other per-image size limit.
 - Browser storage protection is advisory. A denial, an unsupported browser, or a failed check changes nothing about Backup, Restore, or normal use, and the app cannot force protection.
 - The database connection stays open for the lifetime of the page. `CharacterLibrary.dispose` closes it after the operation chain drains, which is correct for a single-page app. A future schema change in another tab waits for the reload.
 - Same-page ordering only. The library does not synchronize with another tab that writes the same database.
