@@ -9,6 +9,7 @@
   import type { Character } from './types';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
+  import BackupSection from './components/BackupSection.svelte';
 
   const DELETE_FAILED = 'Could not delete the Character. It is still in your library.';
   const BATCH_DELETE_FAILED =
@@ -321,6 +322,14 @@
         onLightboxChange={(open) => (lightboxOpen = open)}
         returnFocusCharacterId={returnFocusCharacterId}
       />
+    {/if}
+
+    <!-- Below the Gallery and outside the form branch, so a Backup stays
+         available while a Character form is open and that form keeps its
+         draft. It is mounted only while the library is ready, so it can never
+         read a list the library has not loaded. -->
+    {#if library.status === 'ready'}
+      <BackupSection {library} />
     {/if}
   </main>
 </div>
