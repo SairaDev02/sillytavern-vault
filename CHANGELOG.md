@@ -50,9 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The number selected is announced as status.
 - Two maintained descriptions now match the implementation. The masonry design
   guide describes the card's delivered "Image unavailable" fallback and its
-  reserved frame instead of filing it as follow-on work, and the developer wiki's
-  "Change a theme color" recipe names the direct palette utilities that a token
-  change does not reach, while keeping the convention that favors token names.
+  reserved frame. It no longer files that behavior as follow-on work. The
+  developer wiki's "Change a theme color" recipe names the direct palette
+  utilities that a token change does not reach. It keeps the convention that
+  favors token names.
 - Contributor and agent guidance now share one documentation update contract,
   which the [Documentation Map](docs/WIKI.md#18-documentation-map) states. A
   noteworthy user-facing, setup or toolchain, or maintainer-policy change
@@ -91,14 +92,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the draft, the image, and the inline alert.
 - Closing the form hands focus back once. Add returns to Add Character. Edit
   returns to the edited Character's card, matched by identity so Characters that
-  share a name are not confused, or to the search field when that card is not on
-  the rendered page. A control focused outside the form while a save is pending
-  keeps the focus, and a later page of results never moves it again.
+  share a name are not confused. When that card is not on the rendered page,
+  Edit returns to the search field instead. A control focused outside the form
+  while a save is pending keeps the focus. When nothing is focused, the handover
+  still runs. A later page of results never moves it again.
 - The Character form's Name, Description, and image controls and its Cancel and
-  Discard replacement buttons use the lighter outlined-control border, so each
-  control's boundary is identifiable against the form panel. Placeholder text is
-  readable at that step, and the fields dim while a save is pending, so an
-  inactive field is distinguishable from an editable one.
+  Discard replacement buttons use the lighter outlined-control border. Each
+  control's boundary is therefore identifiable against the form panel.
+  Placeholder text is readable at that step. The fields dim while a save is
+  pending, so an inactive field is distinguishable from an editable one.
 - Add Character and Delete Selected do not lift on hover when reduced motion is
   requested, and their hover transition is off. Their actions, their hover colour
   changes, and their disabled states are unchanged, and the hover lift is
