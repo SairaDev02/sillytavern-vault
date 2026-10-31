@@ -27,7 +27,7 @@
       type="button"
       onclick={onDeleteSelected}
       disabled={selectedCount === 0}
-      class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-red-700 hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:bg-red-600 disabled:hover:translate-y-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50"
+      class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-transform motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none hover:bg-red-700 disabled:opacity-50 disabled:hover:bg-red-600 disabled:hover:translate-y-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50"
     >
       Delete Selected
     </button>

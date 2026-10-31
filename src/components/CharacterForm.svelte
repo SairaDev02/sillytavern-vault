@@ -124,6 +124,14 @@
     {editingCharacter ? 'Edit Character' : 'Add New Character'}
   </h2>
   <form bind:this={formEl} onsubmit={handleSubmit}>
+    <!--
+      The controls take their boundary from border-zinc-500: border-border
+      measures 1.66:1 against the panel, and the field fill differs from that
+      panel by 1.07:1, so the border is the only thing that shows where a field
+      starts. The fields also dim with disabled:opacity-50 while a save is
+      pending, like the buttons, so an inactive field is distinguishable from
+      an editable one.
+    -->
     <div class="mb-4">
       <label for="char-name" class="mb-1 block font-medium">Name *</label>
       <input
@@ -134,7 +142,7 @@
         disabled={saving}
         oninput={handleTextInput}
         placeholder="Character name"
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 placeholder:text-zinc-500 focus:border-accent focus:outline-none disabled:opacity-50"
       />
     </div>
     <div class="mb-4">
@@ -146,7 +154,7 @@
         disabled={saving}
         oninput={handleTextInput}
         placeholder="Brief description..."
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 placeholder:text-zinc-500 focus:border-accent focus:outline-none disabled:opacity-50"
       ></textarea>
     </div>
     <div class="mb-4">
@@ -160,7 +168,7 @@
         onchange={handleFileSelect}
         disabled={saving}
         aria-describedby="char-image-help char-image-status"
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover disabled:opacity-50"
       />
       <p id="char-image-help" class="mt-1 text-xs text-zinc-500">
         Downloads are converted to PNG. Large files use more browser storage.
@@ -186,7 +194,7 @@
           type="button"
           onclick={handleDiscard}
           disabled={saving}
-          class="mt-2 rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+          class="mt-2 rounded-lg border border-zinc-500 px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
         >
           Discard replacement
         </button>
@@ -214,7 +222,7 @@
         type="button"
         onclick={handleCancel}
         disabled={saving}
-        class="rounded-lg border border-border px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+        class="rounded-lg border border-zinc-500 px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
       >
         Cancel
       </button>

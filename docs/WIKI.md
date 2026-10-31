@@ -735,7 +735,11 @@ Change `PAGE_SIZE` in `src/gallery-utils.ts`. `Gallery` and the tests use the co
 
 ### Change a theme color
 
-Change the token in `src/style.css`. The components use the token names, so no component change is necessary.
+Change the token in `src/style.css`, then check the components that use the color. Section 11 states the convention: a component color is written as a token utility (`bg-accent`, `text-accent`, `border-border`, `file:bg-accent`). Most of them are, so a token change reaches those uses with no component edit.
+
+Not every component color follows a token. Components also write direct palette utilities: `text-zinc-300`, `text-zinc-200`, `text-zinc-400`, `bg-zinc-800`, `border-zinc-500`, and on Delete Selected `bg-red-600` with `hover:bg-red-700`. Those follow Tailwind's palette, so a token change does not reach them. The lightbox Download and Edit buttons show both kinds in one class list, `bg-border` at rest and `hover:bg-purple-700`, so a new `--color-border` would change the rest color and leave the hover color as it was. `text-zinc-500`, `placeholder:text-zinc-500`, and `border-zinc-500` do follow `src/style.css`, because `--color-zinc-500` retunes that palette step there.
+
+Grep `src/` for the palette step as well as for the token before you conclude that the change is complete. Prefer a token name over a palette step when you add or change a color.
 
 ### Add a component test
 
