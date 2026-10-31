@@ -133,7 +133,7 @@ Restore this Backup?
 0 records could not be read and will be skipped.
 ```
 
-  Dismissing it produced `Restore canceled. Nothing was written.` The library stayed at 3 records and the input was reset. The status line was respelled from `cancelled` to `canceled` after the run, to follow the repository's American English rule. Nothing else in this observation changed, and the flow was not run again.
+  Dismissing it produced `Restore canceled. Nothing was written.` The library stayed at 3 records and the input was reset. The status line was respelled from `cancelled` to `canceled` after this run, to follow the repository's American English rule; the American spelling is re-verified on the final revision in section 13.
 - Attempt 2 selected the same file again, and the same confirmation appeared again. That shows the input had been reset. Dismissed again: nothing was written.
 - Attempt 3 accepted the same confirmation: `Restore finished: 1 added, 3 already in your library and kept.` The library then held Aurora, Bramble, Cinder, and Dusk.
 
@@ -252,3 +252,68 @@ Run in this worktree twice: at commit `f3587a3`, which is the merge base of this
 
 `git merge spec/72-backup-restore` reported `Already up to date`, so the integration branch had not moved and these commands already ran on the final revision of this branch.
 This branch changes no script, style, or test: it adds this file only.
+
+## 13. Re-check on the final revision
+
+The review fixes merged into `spec/72-backup-restore` after the run in sections 1 to 12 changed the parser, the Restore planning code, and three user-facing sentences. This section re-runs the flows those fixes touch on the final revision. The 100-Character large-library case in section 4 was not repeated. Sections 1 to 12 still record commit `f3587a3`.
+
+| Item | Value |
+|---|---|
+| Date | 2026-10-31 (local time, GMT+0800) |
+| Commit | `4833da467ad9dd555ee995cd34a3d1cfc0721942`, branch `ticket/72-recheck`, whose base is the integration branch `spec/72-backup-restore` at the same commit |
+| Browser | Microsoft Edge 156.0.4314.50 (Chromium 156.0.0.0), the `msedge` channel |
+| Browser mode | Headless, window 1280 x 720. No visible window was used. User agent `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0`, `navigator.platform` `Win32` |
+| Driver | Playwright CLI 0.1.22, `playwright-cli -s=recheck ... --browser msedge` |
+| Server | `npx vite --port 5202 --strictPort` from that worktree, page `http://localhost:5202/` |
+| Origin | `http://localhost:5202` (one origin for every flow below) |
+| Seeding | Through the **Add Character** form only. The files a flow needed that the app cannot produce were written under `.pi-tmp/`: one Backup with an extra Character, two duplicate-id files, one file with an invalid record, one file with a line past the reader's bound, and a plain text file. |
+
+### 13.1 What the fixes changed
+
+- The canceled-restore sentence now reads `Restore canceled. Nothing was written.` (American spelling).
+- A duplicate `id` is a whole-file structural failure, detected on any two lines that carry the same non-empty string `id`, including a line that fails the record matrix and including the order where that line comes first. The refusal says two records carry the same Character id.
+- The over-long-line refusal now says the line is longer than the reader will hold.
+- The collision rule moved into one `planRestore` function, which both the library's write and the section's preview call, with behavior meant to be unchanged.
+
+### 13.2 Flows re-run
+
+| Re-checked flow | Observed |
+|---|---|
+| Small library through **Add Character** | Three Characters added, one per form submission: Aurora (96 x 64 PNG), Bramble (64 x 96 PNG), Cinder (72 x 72 PNG), each a real upload. Every submission showed the `Preview of the selected character` and enabled **Save** only after the image was prepared. Stored: Aurora `1559d526-…` 96 x 64, `createdAt` 1793453829079, image data URL 17 594 characters; Bramble `528f777c-…` 64 x 96, 1793453829211, 17 750 characters; Cinder `251062c0-…` 72 x 72, 1793453829344, 14 242 characters. |
+| **Create Backup**, file shape | Suggested name `character-gallery-backup-2026-10-31.jsonl`; `download.failure()` returned `null`; the download event fired 47 ms after the click and the driver saved the bytes after 324 ms. The saved file is 50 236 bytes, starts with `7b 22 66` (`{"f`), has no byte-order mark and no CRLF pair, ends with a newline, and holds 4 non-empty lines. Header: `{"format":"character-gallery/backup","formatVersion":1,"exportedAt":"2026-10-31T13:37:37.475Z","appVersion":"1.0.0"}`. The three record lines carry the keys `id,name,description,image,width,height,createdAt` in that order, with the stored `id`, `createdAt`, and size values and a `data:image/png;base64,` image. The header and the record lines are therefore unchanged in shape from section 3.1. Status after the handoff: `Backup handed to your browser for download as character-gallery-backup-2026-10-31.jsonl. Your browser or operating system chooses where it saves it.` |
+| Clear through the app | Checkboxes `Select Cinder`, `Select Bramble`, `Select Aurora`; **Delete Selected** disabled before any box was checked and enabled after; status `3 selected`. Native confirmation `Delete 3 characters?`, accepted. The library held 0 records, the page showed `No characters yet. Add one above!`, and **Create Backup** was disabled with the reason `There are no Characters to back up yet.` |
+| Restore into the empty library | Confirmation: `Restore this Backup? / 3 Characters will be added. / 0 Characters already in your library will be kept. / 0 records could not be read and will be skipped.` Accepted. Report: `Restore finished: 3 added, 0 already in your library and kept.` The three records came back with the same `id`, `createdAt`, size, and image length as before the clear. The cards showed Cinder 72 x 72, Bramble 64 x 96, and Aurora 96 x 64, each image complete at that natural size, with frame styles `aspect-ratio: 72 / 72;`, `64 / 96;`, and `96 / 64;`. The file input was reset to an empty value. |
+| Dismiss the confirmation | A crafted Backup (the same file plus one Character, `Dusk`, 80 x 48, real PNG, id `30729c36-f3c2-44e6-acc0-8073406b02da`) produced `Restore this Backup? / 1 Character will be added. / 3 Characters already in your library will be kept. / 0 records could not be read and will be skipped.` Dismissing it produced `Restore canceled. Nothing was written.` The library stayed at 3 records, no alert appeared, and the input was reset to an empty value. |
+| Choose the same file again | The same file was selectable again and produced the same confirmation. A second dismissal left the library at 3. A third attempt accepted that confirmation and reported `Restore finished: 1 added, 3 already in your library and kept.`, after which the library held Aurora, Bramble, Cinder, and Dusk, with Dusk keeping the crafted `id` and `createdAt` 1793454195516. |
+| Duplicate id, valid record first | A file with one valid record and a second line that is not a valid record but carries the same `id` (its `name` was the number 7). No confirmation appeared. Inline alert: `This Backup is damaged: two records carry the same Character id, so nothing was restored.` The polite status stayed empty and the library held 4 records before and 4 after. The input was reset. |
+| Duplicate id, malformed line first | The same two lines in the other order: no confirmation, the same alert, 4 records before and 4 after, input reset. |
+| One invalid record, not a duplicate | Confirmation `Restore this Backup? / 1 Character will be added. / 0 Characters already in your library will be kept. / 1 record could not be read and will be skipped.` Accepted. Report: `Restore finished: 1 added, 0 already in your library and kept. 1 record could not be read and was skipped: line 3: the name is missing.` The valid record was written (4 records to 5) and the bad line was named by its number. |
+| A file that is not a Backup | Inline alert `The file is not a Character Gallery Backup: its first line is not JSON.` as a `role="alert"` node; the polite status line was empty and no confirmation appeared. The library held 5 records before and 5 after, and the input was reset. The driver's file-chooser path did not hand this `.txt` file to the input, whose `accept` attribute names only `.jsonl` and `application/x-ndjson`: no change event fired and no alert appeared. Setting the file on the input directly, as section 3.5 did, produced the refusal above. |
+| A line past the reader's bound | A 134 217 847-byte file whose second line is 134 217 729 characters long. Refused 4 150 ms after the file was set, with the inline alert `This Backup is damaged: it holds a line longer than this reader will hold, so nothing was restored.` The library held 6 records before and 6 after, and the input was reset. |
+
+The page console held exactly four `Failed to restore a Backup: BackupFileError: …` entries, one for each refused file above (two duplicate ids, the plain text file, and the over-long line), and no other error or warning. No Backup failed and no Restore failed unexpectedly.
+
+### 13.3 Announced states for one Restore
+
+These are accessibility-tree snapshots taken from the running page, as in section 7. The Restore was a single-record file of 8.4 MB, which kept the busy state observable.
+
+| State | What the page exposed |
+|---|---|
+| Busy | 9 ms after the file was set, the region `Backup and restore` had `aria-busy="true"` and read: `button "Create Backup" [disabled]`, `paragraph: A Restore is in progress.`, `button "Backup file" [disabled]`, `paragraph: A Restore is in progress.`, `status: Reading and checking the Backup file…`. Both operations were excluded at once. |
+| Success | After the driver accepted the confirmation: `status: "Restore finished: 1 added, 0 already in your library and kept."` in the same polite live region, and no alert. |
+| Alert, a file that is not a Backup | `alert: "The file is not a Character Gallery Backup: its first line is not JSON."` as a `role="alert"` node, with the polite status line present and empty. |
+
+The duplicate busy sentence is the same observation section 7 records, and it is still not a defect.
+
+The Restore wrote the record and published a card whose image is undecodable, so that card showed the app's `Image unavailable` fallback. That matches section 4: a Restore report states what the library committed, not that an image will display.
+
+### 13.4 What this re-check does and does not cover
+
+- It covers the flows the review fixes touched: the canceled-restore wording, the duplicate-id rule in both orders, the over-long-line wording, and the collision rule's single home. The confirmations and the finished reports agreed in every flow where both appeared (3 added and 0 kept on the empty library, 1 added and 3 kept after the cancel, 1 added and 0 kept with one unreadable record), which is the observable part of that refactor.
+- The large-library case in section 4 was not repeated. Its numbers and timings stand as recorded on `f3587a3`, not on this commit.
+- The in-batch half of `planRestore` — a second copy of one identity inside one batch — can no longer be reached from a parsed file, because the parser refuses duplicate identities before it returns any record. That branch is covered by the unit suite, not by this run.
+- The native confirmation was again operated by the driver's accept and dismiss, not by the keyboard. Section 6's note that keyboard operation of the dialog's buttons is unverified still stands, and section 10's limits are unchanged.
+- Android, Firefox, Safari, and real screen-reader sessions remain unverified, as listed in section 11. This re-check used the same headless desktop Edge on one 1280 x 720 viewport.
+- No defect was found in the re-checked flows. This commit changes this file only: no source file and no test.
+
+Run on this commit after the browser flows: `npm test` passed 20 test files and 384 tests, `npm run check` reported `svelte-check found 0 errors and 0 warnings`, and `npm run build` transformed 134 modules and emitted `dist/assets/index-h2JhWWRY.js` at 104.94 kB. Section 12 records 380 tests and a 104.83 kB script because it ran before the review fixes; this file changes neither.
