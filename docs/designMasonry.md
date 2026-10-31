@@ -438,14 +438,16 @@ Recommended error UI:
 - no per-card retry control; the existing Download action can be used to try a
   failed download again, and the existing Edit workflow can replace an image.
 
-Current status: `MasonryItem.svelte` does not track image loading or failure and
-has no image `error` handler or custom fallback. The `Image unavailable` state
-and the rule that reserves the frame from stored dimensions only when both are
-finite and positive
-(otherwise the complete 4:3 fallback) are approved follow-on work in
-[#23](https://github.com/SairaDev02/sillytavern-vault/issues/23) and
-[#32](https://github.com/SairaDev02/sillytavern-vault/issues/32), not current
-behavior.
+Current status: `MasonryItem.svelte` implements the failure state and leaves
+loading to the browser inside the frame it reserves. A failing image records the
+source that failed, and while that record still describes the image on screen the
+card shows `Image unavailable` in the same frame, with no `img` left behind. The
+frame takes the stored dimension pair only when both values are finite and
+positive, and the complete 4:3 fallback otherwise, so a failed image cannot
+collapse a card or reflow the columns. `src/image-frame.ts` holds those rules
+once, so the lightbox reserves its frame by the same rule. The state was decided
+in [#23](https://github.com/SairaDev02/sillytavern-vault/issues/23) and delivered
+under [#32](https://github.com/SairaDev02/sillytavern-vault/issues/32).
 
 Do not replace a failed image with a dynamically sized error element because that can cause masonry columns to reflow unexpectedly.
 
