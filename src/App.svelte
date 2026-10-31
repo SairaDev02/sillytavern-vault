@@ -6,6 +6,7 @@
     type LibraryStatus,
   } from './character-library.svelte';
   import { DownloadAttempts } from './download-attempts.svelte';
+  import { PersistentStorage } from './persistent-storage.svelte';
   import type { Character } from './types';
   import Gallery from './components/Gallery.svelte';
   import CharacterForm from './components/CharacterForm.svelte';
@@ -33,6 +34,12 @@
   // running, and its failure still reaches the page. It is separate state from
   // `deleteNotice`, so neither notice overwrites the other.
   const downloads = new DownloadAttempts();
+
+  // One owner of the browser's eviction-protection answer per page. It lives
+  // here, beside the library, because the Backup section below unmounts and
+  // mounts again with the library's status, and the request belongs to the page
+  // lifetime rather than to one mount. It is advisory: nothing is gated on it.
+  const protection = new PersistentStorage();
 
   let editingCharacter = $state<Character | null>(null);
   let showForm = $state(false);
@@ -62,6 +69,13 @@
 
   $effect(() => {
     statusMessage = STATUS_MESSAGE[library.status];
+  });
+
+  // Ask the browser for persistent storage once, after the library first
+  // becomes ready. The request does not block the page and produces no
+  // start-up notice; the answer waits in the Backup section.
+  $effect(() => {
+    if (library.status === 'ready') protection.requestOnce();
   });
 
   onMount(() => {
@@ -329,7 +343,7 @@
          draft. It is mounted only while the library is ready, so it can never
          read a list the library has not loaded. -->
     {#if library.status === 'ready'}
-      <BackupSection {library} />
+      <BackupSection {library} {protection} />
     {/if}
   </main>
 </div>

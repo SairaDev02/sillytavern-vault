@@ -8,6 +8,8 @@
     parseBackup,
   } from '../backup-format';
   import { downloadBlob } from '../download';
+  import { PersistentStorage } from '../persistent-storage.svelte';
+  import StorageProtection from './StorageProtection.svelte';
 
   /** One flag owns the section's busy state, so Backup and Restore exclude each other. */
   type Operation = 'backup' | 'restore';
@@ -45,13 +47,18 @@
     if (tail) yield tail;
   }
 
+  // The page owns the browser-protection state, so the once-per-page-lifetime
+  // request survives this section unmounting and mounting again. A section
+  // mounted on its own still renders: its fresh owner has no answer yet.
   let {
     library,
     readFile = readFileChunks,
+    protection = new PersistentStorage(),
   }: {
     library: CharacterLibrary;
     /** The file-read seam, so a test can hold a read open or feed chunks. */
     readFile?: (file: File) => AsyncIterable<string>;
+    protection?: PersistentStorage;
   } = $props();
 
   let operation = $state<Operation | null>(null);
@@ -262,4 +269,8 @@
   <p role="status" aria-live="polite" aria-atomic="true" class="mt-3 text-sm text-zinc-300">
     {statusMessage}
   </p>
+
+  <!-- Last in the section, with its own polite line, so the storage answer
+       never competes with the Backup feedback above it. -->
+  <StorageProtection {protection} />
 </section>
