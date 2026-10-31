@@ -1768,7 +1768,7 @@ describe('App', () => {
       expectFocusOn(cardFor('the older twin'), "the edited Character's card");
     });
 
-    it('resolves the return target by the card identity, not by rendered order', async () => {
+    it('targets the card that carries the edited record identity', async () => {
       await seedDatabase([
         makeCharacter(1, { name: 'Twin', description: 'the older twin' }),
         makeCharacter(2, { name: 'Twin', description: 'the newer twin' }),
@@ -1777,8 +1777,8 @@ describe('App', () => {
       start();
       await waitFor(() => expect(figures()).toHaveLength(2));
 
-      // The browse card carries the record identity, so the handover reads
-      // identity instead of assuming that document order matches the list.
+      // The browse card carries the record identity as `data-character-id`, so
+      // the handover names the record instead of relying on the Character name.
       expect(cardFor('the older twin').getAttribute('data-character-id')).toBe('char-1');
 
       await openEditForm('the older twin');

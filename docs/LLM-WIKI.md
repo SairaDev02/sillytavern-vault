@@ -358,7 +358,7 @@ Pitfalls:
 | `download.ts`: 60 s `setTimeout` before `revokeObjectURL` | An immediate revoke can cancel the download. |
 | `db.ts`: `tx.onabort` rejection | Aborted transactions fire only `abort`; without it the promise never settles. |
 | `MasonryGrid.svelte`: `matchMedia` read once at component creation | The duration is a construction-time constant; the values only drive `animate:flip` / `fade`. |
-| `App.svelte`: `closeForm` keeps the focus only for an outside control that holds it | A heading or field in the disappearing form would strand focus, and the body is not a choice. Only a persistent control outside the form, chosen during a pending save, is the user's decision to keep. |
+| `App.svelte`: `closeForm` keeps the focus only for an element outside the form that holds it | A heading or field in the disappearing form would strand focus, and the body is not a choice. An element outside the form, chosen during a pending save, is the user's decision to keep. |
 | `Gallery.svelte`: `returnFocusCharacterId` is the page's request, `pendingReturn` is its unspent copy | The request must be spent exactly once. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
 | `CharacterForm.svelte`: the heading carries `focus:ring-2` besides the shared outline | A form opened with the pointer does not match `:focus-visible`, so the unlayered outline is absent and the ring is the only indicator. |
 | `tests/setup.ts` shims | jsdom lacks `matchMedia`, WAAPI, and real `<dialog>` methods. The shims are approximations, not test logic. |
