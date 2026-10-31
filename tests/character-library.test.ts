@@ -3,6 +3,7 @@ import {
   CharacterLibrary,
   LibraryError,
   REPAIR_WARNING,
+  planRestore,
   type CharacterLibraryDeps,
   type CharacterDraft,
 } from '../src/character-library.svelte';
@@ -995,6 +996,41 @@ describe('CharacterLibrary: restore', () => {
     expect(result).toEqual({ added: 0, skipped: 2 });
     expect(harness.writeMany).not.toHaveBeenCalled();
     expect(harness.library.characters).toBe(before);
+  });
+
+  it('counts a batch against a list exactly as the write counts it', async () => {
+    const harness = makeHarness();
+    const kept = makeCharacter(1, { name: 'Library copy' });
+    await seed(harness.databaseName, [kept]);
+    await harness.library.initialize();
+
+    const records = [
+      makeCharacter(1, { name: 'File copy' }),
+      makeCharacter(2),
+      makeCharacter(3),
+    ];
+
+    // The section previews its counts with this call, and the write recomputes
+    // them on the chain. One rule, so the two cannot disagree.
+    const preview = planRestore(records, harness.library.characters);
+    const applied = await harness.library.restore(records);
+
+    expect(preview.counts).toEqual(applied);
+    expect(preview.records.map((record) => record.id)).toEqual(['char-2', 'char-3']);
+    expect(applied).toEqual({ added: 2, skipped: 1 });
+  });
+
+  it('keeps the second copy of an identity in one batch out of the write', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+
+    const plan = planRestore(
+      [makeCharacter(1), makeCharacter(1, { name: 'Second copy' })],
+      []
+    );
+
+    expect(plan.counts).toEqual({ added: 1, skipped: 1 });
+    expect(plan.records.map((record) => record.name)).toEqual(['Character 1']);
   });
 
   it('runs after an accepted save, so the save is counted as present', async () => {

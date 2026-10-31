@@ -275,7 +275,7 @@ describe('Restore', () => {
     expect(persisted.map((character) => character.id)).toEqual(['char-1']);
   });
 
-  it('writes nothing when the confirmation is cancelled, and the same file can be chosen again', async () => {
+  it('writes nothing when the confirmation is canceled, and the same file can be chosen again', async () => {
     await seedDatabase(APP_DB, [makeCharacter(1)]);
     app = mount(App, { target });
     await waitForReady();
@@ -286,7 +286,7 @@ describe('Restore', () => {
     await restoreFile(file);
 
     expect(confirmSpy()).toHaveBeenCalledTimes(1);
-    expect(statusText()).toMatch(/cancelled/i);
+    expect(statusText()).toMatch(/canceled/i);
     expect(statusText()).toMatch(/nothing was written/i);
     expect(sectionAlert()).toBeNull();
     expect(figures()).toHaveLength(1);
