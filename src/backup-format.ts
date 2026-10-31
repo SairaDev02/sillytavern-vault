@@ -18,8 +18,10 @@ export const BACKUP_FORMAT_VERSION = 1;
 export const BACKUP_MIME_TYPE = 'application/x-ndjson';
 
 /**
- * The longest line the reader will hold. A line over this cannot be a stored
- * Character, so the file is refused rather than buffered without limit.
+ * The longest line the reader will hold. A longer line refuses the file rather
+ * than buffering without limit. The app enforces no image-size limit, so a
+ * legitimate record could in principle be this long; the reader cannot tell it
+ * from a damaged line and does not claim otherwise.
  */
 export const MAX_LINE_LENGTH = 128 * 1024 * 1024;
 
@@ -147,12 +149,12 @@ interface FileLine {
 function tooLongLine(): BackupFileError {
   return new BackupFileError(
     'line-too-long',
-    'This Backup is damaged: it holds a line longer than a record can be, ' +
+    'This Backup is damaged: it holds a line longer than this reader will hold, ' +
       'so nothing was restored.'
   );
 }
 
-/** Refuse a line that cannot be a record before it is held in memory. */
+/** Refuse a line longer than the bound before it is held in memory. */
 function guardLength(length: number, maxLineLength: number): void {
   if (length > maxLineLength) throw tooLongLine();
 }
@@ -173,7 +175,7 @@ async function* readLines(
   let number = 0;
   let first = true;
 
-  const normalise = (text: string): string => {
+  const normalize = (text: string): string => {
     const withoutCarriageReturn = text.endsWith('\r') ? text.slice(0, -1) : text;
     if (!first) return withoutCarriageReturn;
     first = false;
@@ -188,7 +190,7 @@ async function* readLines(
     while (newline !== -1) {
       guardLength(newline, maxLineLength);
       number += 1;
-      yield { number, text: normalise(buffer.slice(0, newline)) };
+      yield { number, text: normalize(buffer.slice(0, newline)) };
       buffer = buffer.slice(newline + 1);
       newline = buffer.indexOf('\n');
     }
@@ -199,7 +201,7 @@ async function* readLines(
   // A trailing newline is allowed, so an empty remainder is not a line.
   if (buffer.length > 0) {
     number += 1;
-    yield { number, text: normalise(buffer) };
+    yield { number, text: normalize(buffer) };
   }
 }
 
@@ -294,6 +296,29 @@ function readImage(value: unknown): { image: string } | { reason: string } {
   return { image: value };
 }
 
+/** One line as a JSON object, or null when the line is not one. */
+function readObject(line: string): Record<string, unknown> | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return null;
+  }
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/**
+ * The identity a line names, or null when it names none. It is read from the
+ * line itself and not from an admitted record, because a line that fails the
+ * record matrix still names the Character it claims to be. An empty `id` names
+ * no Character, so it cannot collide with another line.
+ */
+function carriedIdentity(record: Record<string, unknown>): string | null {
+  return typeof record.id === 'string' && record.id.length > 0 ? record.id : null;
+}
+
 /**
  * Admit one stored Character, or say why the line is not one.
  *
@@ -303,19 +328,7 @@ function readImage(value: unknown): { image: string } | { reason: string } {
  * Fields the contract does not name are ignored. The first failure in contract
  * order is reported, so each skipped record names one thing to look at.
  */
-function readRecord(line: string): RecordReading {
-  let value: unknown;
-  try {
-    value = JSON.parse(line);
-  } catch {
-    return { reason: RECORD_FAILURE.line };
-  }
-
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return { reason: RECORD_FAILURE.line };
-  }
-
-  const record = value as Record<string, unknown>;
+function readRecord(record: Record<string, unknown>): RecordReading {
   if (typeof record.id !== 'string' || record.id.length === 0) {
     return { reason: RECORD_FAILURE.id };
   }
@@ -358,10 +371,11 @@ export interface ParseBackupOptions {
  * Read a version-1 Backup file as it arrives, line by line.
  *
  * A structural failure — not JSON Lines, an unreadable header, another format,
- * an unsupported version, one identity twice, or a line too long to be a record
- * — rejects the whole file before any record is handed back. A line that is not
- * a Character is skipped and listed with its position and what it failed on, so
- * the caller can report it while restoring the rest.
+ * an unsupported version, two lines that name one identity, or a line longer
+ * than the reader will hold — rejects the whole file before any record is
+ * handed back. A line that is not a Character is skipped and listed with its
+ * position and what it failed on, so the caller can report it while restoring
+ * the rest.
  */
 export async function parseBackup(
   chunks: AsyncIterable<string>,
@@ -382,23 +396,29 @@ export async function parseBackup(
       continue;
     }
 
-    const reading = readRecord(line.text);
+    const record = readObject(line.text);
+    const identity = record === null ? null : carriedIdentity(record);
+
+    // Any two lines that name one identity damage the whole file: an additive
+    // Restore cannot apply one identity twice, whatever the rest of the line
+    // reads like.
+    if (identity !== null) {
+      if (identities.has(identity)) {
+        throw new BackupFileError(
+          'duplicate-id',
+          'This Backup is damaged: two records carry the same Character id, ' +
+            'so nothing was restored.'
+        );
+      }
+      identities.add(identity);
+    }
+
+    const reading = record === null ? { reason: RECORD_FAILURE.line } : readRecord(record);
     if ('reason' in reading) {
       unreadable.push({ line: line.number, reason: reading.reason });
       continue;
     }
 
-    // An additive Restore cannot apply one identity twice, so a file that
-    // carries two is damaged as a whole rather than partly restorable.
-    if (identities.has(reading.record.id)) {
-      throw new BackupFileError(
-        'duplicate-id',
-        'This Backup is damaged: two records carry the same Character id, ' +
-          'so nothing was restored.'
-      );
-    }
-
-    identities.add(reading.record.id);
     records.push(reading.record);
   }
 

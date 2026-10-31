@@ -437,12 +437,12 @@ describe('unreadable record report', () => {
   it('names the field each record failed on in the person\'s terms', async () => {
     const lines = [
       recordLine({}, ['id']),
-      recordLine({}, ['name']),
-      recordLine({}, ['description']),
-      recordLine({}, ['createdAt']),
-      recordLine({}, ['image']),
-      recordLine({ image: 'https://example.com/aria.png' }),
-      recordLine({ image: 'data:image/png;base64,' }),
+      recordLine({ id: 'no-name' }, ['name']),
+      recordLine({ id: 'no-description' }, ['description']),
+      recordLine({ id: 'no-created-at' }, ['createdAt']),
+      recordLine({ id: 'no-image' }, ['image']),
+      recordLine({ id: 'bad-image', image: 'https://example.com/aria.png' }),
+      recordLine({ id: 'empty-image', image: 'data:image/png;base64,' }),
     ];
 
     const parsed = await parseRecords(...lines);
@@ -469,7 +469,8 @@ describe('unreadable record report', () => {
 /**
  * A file that carries one identity twice cannot be applied as an additive
  * Restore, so it is a structural failure: the whole file is refused before any
- * record is handed back, and nothing is written.
+ * record is handed back, and nothing is written. A line that fails the record
+ * matrix still carries the identity it names, so it counts here too.
  */
 describe('duplicate identities', () => {
   it('rejects the whole file when two admitted records carry the same id', async () => {
@@ -494,22 +495,36 @@ describe('duplicate identities', () => {
     expect(failure.kind).toBe('duplicate-id');
   });
 
-  it('does not treat an unreadable copy of an id as a duplicate', async () => {
-    const parsed = await parseRecords(
-      recordLine({ id: 'char-1' }),
-      recordLine({ id: 'char-1', name: 7 })
+  it('rejects the whole file when a malformed line carries an admitted id', async () => {
+    const failure = await rejectionOf(
+      fileOf(
+        headerLine(),
+        serializeCharacterRecord(makeCharacter(1)),
+        recordLine({ name: 7 })
+      )
     );
 
-    expect(parsed.records.map((record) => record.id)).toEqual(['char-1']);
-    expect(parsed.unreadable).toHaveLength(1);
+    expect(failure.kind).toBe('duplicate-id');
+    expect(failure.message).toMatch(/same Character id/i);
+  });
+
+  it('rejects the whole file when the malformed duplicate comes first', async () => {
+    const failure = await rejectionOf(
+      fileOf(
+        headerLine(),
+        recordLine({ name: 7 }),
+        serializeCharacterRecord(makeCharacter(1))
+      )
+    );
+
+    expect(failure.kind).toBe('duplicate-id');
   });
 });
 
 /**
- * One line that is longer than the reader's bound cannot be a record, so it is
- * a structural failure: the file is refused rather than buffered without limit.
- * The bound is exercised at test scale through the parser's option, because the
- * production bound is 128 MiB.
+ * A line longer than the reader's bound is a structural failure: the file is
+ * refused rather than buffered without limit. The bound is exercised at test
+ * scale through the parser's option, because the production bound is 128 MiB.
  */
 describe('the line bound', () => {
   it('bounds a line at 128 MiB', () => {
@@ -527,7 +542,7 @@ describe('the line bound', () => {
 
     expect(failure).toBeInstanceOf(BackupFileError);
     expect((failure as BackupFileError).kind).toBe('line-too-long');
-    expect((failure as BackupFileError).message).toMatch(/longer than a record can be/i);
+    expect((failure as BackupFileError).message).toMatch(/longer than this reader will hold/i);
   });
 
   it('rejects a long line that only arrives as many chunks', async () => {
@@ -601,7 +616,7 @@ describe('file tolerances', () => {
       '',
       serializeCharacterRecord(makeCharacter(1)),
       '',
-      recordLine({ name: '   ' }),
+      recordLine({ id: 'blank-name', name: '   ' }),
     ].join('\r\n');
 
     const parsed = await parseBackup(chunksOf(`${text}\r\n`, 4));

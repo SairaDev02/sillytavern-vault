@@ -8,6 +8,7 @@
     parseBackup,
     type UnreadableRecord,
   } from '../backup-format';
+  import { planRestore, type RestoreCounts } from '../character-library.svelte';
   import { downloadBlob } from '../download';
   import { PersistentStorage } from '../persistent-storage.svelte';
   import StorageProtection from './StorageProtection.svelte';
@@ -25,7 +26,7 @@
   const RESTORE_BUSY_REASON = 'A Restore is in progress.';
   const RESTORE_FAILED =
     'The Characters could not be restored, so nothing was written. Your library is unchanged.';
-  const RESTORE_CANCELLED = 'Restore cancelled. Nothing was written.';
+  const RESTORE_CANCELED = 'Restore canceled. Nothing was written.';
   const handoff = (fileName: string) =>
     `Backup handed to your browser for download as ${fileName}. ` +
     'Your browser or operating system chooses where it saves it.';
@@ -80,7 +81,9 @@
   const reason = $derived(busy ? busyReason : empty ? EMPTY_REASON : null);
   const restoreDisabled = $derived(busy || library.status !== 'ready');
 
-  const count = (noun: string, total: number) => `${total} ${noun}${total === 1 ? '' : 's'}`;
+  /** One count in words, with the noun pluralized when it needs to be. */
+  const countSentence = (noun: string, total: number) =>
+    `${total} ${noun}${total === 1 ? '' : 's'}`;
 
   /**
    * Every record the file did not yield, named by its line and what it failed
@@ -89,7 +92,7 @@
   const unreadableReport = (unreadable: readonly UnreadableRecord[]) =>
     unreadable.length === 0
       ? ''
-      : ` ${count('record', unreadable.length)} could not be read and ` +
+      : ` ${countSentence('record', unreadable.length)} could not be read and ` +
         `${unreadable.length === 1 ? 'was' : 'were'} skipped: ` +
         `${unreadable
           .map((entry) => `line ${entry.line}: ${entry.reason}`)
@@ -97,21 +100,21 @@
 
   /** One native confirmation, stating exactly what the write would do. */
   const restoreConfirmation = (
-    added: number,
-    kept: number,
+    counts: RestoreCounts,
     unreadable: readonly UnreadableRecord[]
   ) =>
     'Restore this Backup?\n' +
-    `${count('Character', added)} will be added.\n` +
-    `${count('Character', kept)} already in your library will be kept.\n` +
-    `${count('record', unreadable.length)} could not be read and will be skipped.`;
+    `${countSentence('Character', counts.added)} will be added.\n` +
+    `${countSentence('Character', counts.skipped)} already in your library will be kept.\n` +
+    `${countSentence('record', unreadable.length)} could not be read and will be skipped.`;
 
-  const restoreReport = (added: number, skipped: number, unreadable: readonly UnreadableRecord[]) =>
-    `Restore finished: ${added} added, ${skipped} already in your library and kept.` +
-    unreadableReport(unreadable);
-
-  const nothingToRestore = (kept: number, unreadable: readonly UnreadableRecord[]) =>
-    `Nothing was written: 0 added, ${kept} already in your library and kept.` +
+  /** The one sentence a finished Restore leaves, whether it wrote or not. */
+  const restoreResult = (
+    lead: string,
+    counts: RestoreCounts,
+    unreadable: readonly UnreadableRecord[]
+  ) =>
+    `${lead}: ${counts.added} added, ${counts.skipped} already in your library and kept.` +
     unreadableReport(unreadable);
 
   /**
@@ -144,26 +147,24 @@
       const parsed = await parseBackup(readFile(file));
 
       // Counts are taken from the list as it stands after accepted mutations
-      // settle. The library applies the rule again on its own chain, and the
-      // report uses the counts it actually applied.
+      // settle. The library applies the same rule again on its own chain, so
+      // this preview never decides what is written.
       await library.settled();
-      const present = new Set(library.characters.map((character) => character.id));
-      const added = parsed.records.filter((record) => !present.has(record.id)).length;
-      const kept = parsed.records.length - added;
+      const preview = planRestore(parsed.records, library.characters);
 
-      if (added === 0) {
+      if (preview.counts.added === 0) {
         // Nothing would change, so nothing is written and nothing is asked.
-        statusMessage = nothingToRestore(kept, parsed.unreadable);
+        statusMessage = restoreResult('Nothing was written', preview.counts, parsed.unreadable);
         return;
       }
 
-      if (!confirm(restoreConfirmation(added, kept, parsed.unreadable))) {
-        statusMessage = RESTORE_CANCELLED;
+      if (!confirm(restoreConfirmation(preview.counts, parsed.unreadable))) {
+        statusMessage = RESTORE_CANCELED;
         return;
       }
 
       const applied = await library.restore(parsed.records);
-      statusMessage = restoreReport(applied.added, applied.skipped, parsed.unreadable);
+      statusMessage = restoreResult('Restore finished', applied, parsed.unreadable);
     } catch (error) {
       console.error('Failed to restore a Backup:', error);
       failureMessage =

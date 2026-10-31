@@ -2,10 +2,6 @@
 
 ## Language
 
-**Character**:
-One saved item in the Character library: a name, a description, and one image.
-_Avoid_: card, entry
-
 **Character library**:
 The collection of a person's saved Characters, regardless of what a search shows.
 

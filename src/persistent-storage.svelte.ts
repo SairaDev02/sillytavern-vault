@@ -72,17 +72,14 @@ export class PersistentStorage {
     this.#logger = deps.logger ?? console;
   }
 
-  /** What the browser last answered, or `unchecked` before the first answer. */
   get state(): ProtectionState {
     return this.#state;
   }
 
-  /** Whether a request is in flight. */
   get pending(): boolean {
     return this.#pending;
   }
 
-  /** The answer as one sentence for the user, or '' while there is no answer. */
   get message(): string {
     return this.#state === 'unchecked' ? '' : REPORTED[this.#state];
   }

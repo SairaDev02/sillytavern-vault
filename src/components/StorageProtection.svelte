@@ -17,9 +17,8 @@
 
 <!--
   Its own polite line, below the Backup's status, so a storage answer never
-  competes with the Backup or Restore feedback and never takes focus. The line
-  is rendered empty from the start, because an assistive technology only
-  announces a change to a live region that already existed.
+  competes with the Backup or Restore feedback and never takes focus. It is
+  rendered empty from the start for the same reason the Backup status line is.
 -->
 <div class="mt-6 border-t border-border pt-4">
   <h3 class="text-sm font-medium text-zinc-200">{LABEL}</h3>

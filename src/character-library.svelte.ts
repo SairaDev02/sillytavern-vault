@@ -24,6 +24,44 @@ export const REPAIR_WARNING =
 
 export type LibraryStatus = 'loading' | 'ready' | 'failed';
 
+/** What a Restore would add, and what it keeps because the library holds it. */
+export interface RestoreCounts {
+  added: number;
+  skipped: number;
+}
+
+/** One Restore batch split by the collision rule: what is written, and the counts. */
+export interface RestorePlan {
+  /** The records a write adds, in batch order. */
+  records: Character[];
+  counts: RestoreCounts;
+}
+
+/**
+ * The collision rule, in its one home: a record whose identity the library
+ * already holds is kept rather than written, and so is the second copy of an
+ * identity inside one batch. Restore and the section's preview both count with
+ * this function, so neither can state a different rule.
+ */
+export function planRestore(
+  records: readonly Character[],
+  present: readonly Character[]
+): RestorePlan {
+  const held = new Set(present.map((character) => character.id));
+  const added: Character[] = [];
+
+  for (const record of records) {
+    if (held.has(record.id)) continue;
+    held.add(record.id);
+    added.push(record);
+  }
+
+  return {
+    records: added,
+    counts: { added: added.length, skipped: records.length - added.length },
+  };
+}
+
 /** What the form hands over. The library owns identity, creation time, and size rules. */
 export interface CharacterDraft {
   id?: string;
@@ -232,29 +270,20 @@ export class CharacterLibrary {
    * Add every record the library does not already hold, in one transaction.
    *
    * Restore keeps each record's stored identity and creation time, so it can
-   * never overwrite or roll back local work. The collision rule is applied
-   * here, on the mutation chain, against the list as it stands when the write
-   * is about to run; the returned counts are what actually happened. A
-   * rejection means nothing was written and the canonical list is unchanged.
+   * never overwrite or roll back local work. The collision rule is
+   * `planRestore`, applied here on the mutation chain against the list as it
+   * stands when the write is about to run, so the returned counts are what
+   * actually happened. A rejection means nothing was written and the canonical
+   * list is unchanged.
    */
-  restore(records: Character[]): Promise<{ added: number; skipped: number }> {
+  restore(records: Character[]): Promise<RestoreCounts> {
     const copied = records.map((record) => ({ ...record }));
     return this.#queueMutation(async (database) => {
-      const present = new Set(this.#characters.map((character) => character.id));
-      const added: Character[] = [];
+      const plan = planRestore(copied, this.#characters);
 
-      for (const record of copied) {
-        if (present.has(record.id)) continue;
-        // Records are admitted once each, but the batch itself is not trusted
-        // to be unique: the second copy of an identity is a skip, never a
-        // second write.
-        present.add(record.id);
-        added.push(record);
-      }
-
-      if (added.length > 0) {
+      if (plan.records.length > 0) {
         try {
-          await this.#writeMany(database, added);
+          await this.#writeMany(database, plan.records);
         } catch (error) {
           throw new LibraryError(
             'write-failed',
@@ -262,11 +291,11 @@ export class CharacterLibrary {
             error
           );
         }
-        this.#publishMany(added);
+        this.#publishMany(plan.records);
         this.#scheduleRepair();
       }
 
-      return { added: added.length, skipped: copied.length - added.length };
+      return plan.counts;
     });
   }
 
