@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import App from '../src/App.svelte';
 import BackupSection from '../src/components/BackupSection.svelte';
+import { backupParts } from '../src/backup-format';
 import { CharacterLibrary } from '../src/character-library.svelte';
 import { PersistentStorage } from '../src/persistent-storage.svelte';
 import { openDB, STORE_NAME } from '../src/db';
@@ -86,6 +87,45 @@ async function settle() {
 
 const waitFor = (check: () => void, timeout = 3000) =>
   vi.waitFor(check, { timeout, interval: 10 });
+
+/** A Backup file carrying the given records, as Restore would read it. */
+function backupFile(characters: Character[]): File {
+  const text = backupParts(characters, new Date('2026-10-31T09:15:00.000Z')).join('');
+  return new File([text], 'character-gallery-backup-2026-10-31.jsonl', {
+    type: 'application/x-ndjson',
+  });
+}
+
+const emptyFileList = () => ({ length: 0, item: () => null }) as unknown as FileList;
+
+/**
+ * Choose a file on a native file input. jsdom cannot assign `files` and does
+ * not clear them when `value` is reset, so this double mirrors what the browser
+ * does for the one assignment the section makes.
+ */
+function selectFile(input: HTMLInputElement, file: File): void {
+  let files = {
+    0: file,
+    length: 1,
+    item: (index: number) => (index === 0 ? file : null),
+  } as unknown as FileList;
+
+  Object.defineProperty(input, 'files', { configurable: true, get: () => files });
+
+  const value = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get(this: HTMLInputElement) {
+      return value.get!.call(this);
+    },
+    set(this: HTMLInputElement, next: string) {
+      if (next === '') files = emptyFileList();
+      value.set!.call(this, next);
+    },
+  });
+
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
 describe('Browser eviction protection', () => {
   let target: HTMLDivElement;
@@ -417,5 +457,26 @@ describe('Browser eviction protection', () => {
     await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
     expect(download.mock.calls[0][1]).toMatch(/^character-gallery-backup-.*\.jsonl$/);
     expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Restore fully working when protection is denied', async () => {
+    const persisted = vi.fn(async () => false);
+    const persist = vi.fn(async () => false);
+    stubBrowserStorage({ persisted, persist });
+    await seedDatabase('character-gallery', []);
+
+    app = mount(App, { target });
+    await waitFor(() => expect(addButton()?.disabled).toBe(false));
+    await waitFor(() => expect(protectionText()).toMatch(/has not protected this site/i));
+    expect(target.querySelectorAll('figure')).toHaveLength(0);
+
+    const input = target.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    selectFile(input, backupFile([makeCharacter(1, { name: 'Restored' })]));
+
+    // The denial is advisory: the file is read, confirmed, and written.
+    await waitFor(() => expect(target.querySelectorAll('figure')).toHaveLength(1));
+    expect(globalThis.confirm).toHaveBeenCalledTimes(1);
+    expect(section()!.textContent).toMatch(/1 added/i);
   });
 });
