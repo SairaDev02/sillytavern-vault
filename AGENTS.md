@@ -40,6 +40,10 @@ Keep the To-Do list current on multi-step work; a one-shot edit skips it.
 - Move an item to `in_progress` as you start it, and to `completed` the moment its outcome holds — never batched to the end.
 - A task discovered mid-work gets its own item; one that stops mattering is deleted.
 
+### Temporary files, assets, prototypes
+
+Scratch goes in the gitignored **`.pi-tmp/`** and is deleted before the work is declared done.
+
 ### Subagents
 
 Spawn a subagent when the work splits into independent branches — parallel reads, a research question, an isolated review — or when a step needs a context of its own. Single-pass work stays in this conversation.
