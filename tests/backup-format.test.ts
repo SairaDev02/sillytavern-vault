@@ -519,6 +519,22 @@ describe('duplicate identities', () => {
 
     expect(failure.kind).toBe('duplicate-id');
   });
+
+  // An empty id names no Character, so repeated empty ids cannot collide. Each
+  // line is skipped on its own and the rest of the file still restores.
+  it('skips repeated empty ids instead of rejecting the file', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: '' }),
+      serializeCharacterRecord(makeCharacter(2)),
+      recordLine({ id: '' })
+    );
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['char-2']);
+    expect(parsed.unreadable).toEqual([
+      { line: 2, reason: 'the id is missing' },
+      { line: 4, reason: 'the id is missing' },
+    ]);
+  });
 });
 
 /**

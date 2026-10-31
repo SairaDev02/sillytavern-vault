@@ -312,8 +312,9 @@ function readObject(line: string): Record<string, unknown> | null {
 /**
  * The identity a line names, or null when it names none. It is read from the
  * line itself and not from an admitted record, because a line that fails the
- * record matrix still names the Character it claims to be. An empty `id` names
- * no Character, so it cannot collide with another line.
+ * record matrix still names the Character it claims to be. An empty `id` is not
+ * an identity: it names no Character, so it cannot collide with another line,
+ * and the record matrix already reports each such line as missing its id.
  */
 function carriedIdentity(record: Record<string, unknown>): string | null {
   return typeof record.id === 'string' && record.id.length > 0 ? record.id : null;
