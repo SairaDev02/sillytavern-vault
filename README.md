@@ -101,7 +101,8 @@ Launcher flags: `--dev`, `--port <n>`, `--host`, `--force`, `--no-build`,
 Cards are stored with IndexedDB, in a database called `character-gallery`. An
 important consequence: **the data is scoped to the origin**, so the scheme, host,
 and port must stay the same. Serving the app from port 4173, then from 8080, gives
-you two separate, empty galleries.
+you two separate, empty galleries. A Backup moves a library from one origin or
+browser to another.
 
 Because the app is client-side only:
 
@@ -109,8 +110,14 @@ Because the app is client-side only:
 - Clearing site data, or "Clear browsing data → Cookies and other site data" in
   some browsers, deletes the gallery permanently.
 - The app cannot open `file://` URLs. Use the launcher or any static server.
-- Export important images with the download button. That is the only backup path
-  today.
+- **Create Backup**, in the Backup and restore section below the Gallery, creates
+  one file that carries every Character with its name, description, image, and
+  creation time. **Restore** adds the Characters in that file back and keeps any
+  Character the library already holds. Both stay in your browser: no server, no
+  account, and no upload. The file name states its purpose and its date, as in
+  `character-gallery-backup-2026-10-31.jsonl`.
+- The download button exports one image. The Backup is the copy of the whole
+  library. Your browser or operating system chooses where to save the file.
 
 ## Releases and compatibility
 

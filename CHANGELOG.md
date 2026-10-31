@@ -25,6 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A download that fails while the app prepares the file is reported as one
   dismissible notice that names the Character, in page content or inside the open
   detail view. A handoff to the browser is never reported as a saved file.
+- The Backup and restore section below the Gallery adds two actions. Create
+  Backup prepares one file that carries every Character with its name,
+  description, image, and creation time, and hands it to your browser to
+  download. Restore adds the Characters in that file back to the library, so a
+  library can return after site data is cleared or move to another browser or
+  origin. Restore keeps the stored identity and creation time, adds only what the
+  library does not hold, and never overwrites a Character. Unreadable records are
+  skipped and reported with their line numbers, a file that is not a Backup
+  writes nothing, and a write failure leaves the library unchanged. The file name
+  states its purpose and date, as in
+  `character-gallery-backup-2026-10-31.jsonl`. Both actions stay in the browser:
+  no server, no account, and no upload. A Backup handoff is reported as a
+  handoff, never as a saved file.
+- The Backup and restore section also says whether the browser protects this
+  site's storage, and offers Try again. A denial, a browser that does not report
+  protection, or a failed check changes nothing about Backup, Restore, or normal
+  use.
 
 ### Changed
 
