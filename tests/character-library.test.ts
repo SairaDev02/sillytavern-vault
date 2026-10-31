@@ -1085,6 +1085,32 @@ describe('CharacterLibrary: restore', () => {
     });
   });
 
+  it('uses the repair warning when a restored record cannot be measured, once', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+
+    await harness.library.restore([
+      makeCharacter(1, { width: undefined, height: undefined }),
+    ]);
+    expect(harness.measures).toHaveLength(1);
+
+    const failure = new Error('decode failed');
+    harness.measures[0].reject(failure);
+    await flushMicrotasks();
+
+    expect(harness.library.repairWarning).toBe(REPAIR_WARNING);
+    expect(harness.logger.warn).toHaveBeenCalledTimes(1);
+    expect(harness.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Character 1'),
+      failure
+    );
+    expect(harness.library.characters[0].width).toBeUndefined();
+
+    // A later Restore is not a second attempt at the same identity and image.
+    await harness.library.restore([makeCharacter(2)]);
+    expect(harness.measures).toHaveLength(1);
+  });
+
   it('offers added records without a size pair to the background repair', async () => {
     const harness = makeHarness();
     await harness.library.initialize();

@@ -6,6 +6,7 @@
     backupFileName,
     backupParts,
     parseBackup,
+    type UnreadableRecord,
   } from '../backup-format';
   import { downloadBlob } from '../download';
   import { PersistentStorage } from '../persistent-storage.svelte';
@@ -81,24 +82,35 @@
 
   const count = (noun: string, total: number) => `${total} ${noun}${total === 1 ? '' : 's'}`;
 
-  const unreadableReport = (unreadable: number) =>
-    unreadable === 0
+  /**
+   * Every record the file did not yield, named by its line and what it failed
+   * on, so a damaged file is never reported as a count without the details.
+   */
+  const unreadableReport = (unreadable: readonly UnreadableRecord[]) =>
+    unreadable.length === 0
       ? ''
-      : ` ${count('record', unreadable)} could not be read and ` +
-        `${unreadable === 1 ? 'was' : 'were'} skipped.`;
+      : ` ${count('record', unreadable.length)} could not be read and ` +
+        `${unreadable.length === 1 ? 'was' : 'were'} skipped: ` +
+        `${unreadable
+          .map((entry) => `line ${entry.line}: ${entry.reason}`)
+          .join('; ')}.`;
 
   /** One native confirmation, stating exactly what the write would do. */
-  const restoreConfirmation = (added: number, kept: number, unreadable: number) =>
+  const restoreConfirmation = (
+    added: number,
+    kept: number,
+    unreadable: readonly UnreadableRecord[]
+  ) =>
     'Restore this Backup?\n' +
     `${count('Character', added)} will be added.\n` +
     `${count('Character', kept)} already in your library will be kept.\n` +
-    `${count('record', unreadable)} could not be read and will be skipped.`;
+    `${count('record', unreadable.length)} could not be read and will be skipped.`;
 
-  const restoreReport = (added: number, skipped: number, unreadable: number) =>
+  const restoreReport = (added: number, skipped: number, unreadable: readonly UnreadableRecord[]) =>
     `Restore finished: ${added} added, ${skipped} already in your library and kept.` +
     unreadableReport(unreadable);
 
-  const nothingToRestore = (kept: number, unreadable: number) =>
+  const nothingToRestore = (kept: number, unreadable: readonly UnreadableRecord[]) =>
     `Nothing was written: 0 added, ${kept} already in your library and kept.` +
     unreadableReport(unreadable);
 
