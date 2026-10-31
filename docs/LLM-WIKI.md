@@ -214,7 +214,7 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
 | `App` | none | Page shell. Constructs one `CharacterLibrary` and one `DownloadAttempts`, calls `initialize` on mount, disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, and the gallery. No storage knowledge, no record building. |
-| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. |
+| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)`, `returnFocusCharacterId?` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. `returnFocusCharacterId` is the page's one-shot return request; `pendingReturn` is the Gallery's unspent copy. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
 | `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the frame from `width`/`height` through `image-frame.ts`, falling back to 4:3, and describes a failed image on the browse button or checkbox. |
@@ -266,7 +266,7 @@ MUST hold after any change.
 21. A delete failure is announced in one place in the page shell and keeps the records and the batch selection. A committed batch delete clears the selection and leaves select mode.
 22. No runtime dependencies. `dependencies` must stay absent unless there is an explicit decision to add one.
 23. `npm run check` stays at 0 errors and 0 warnings. Do not delete or weaken a test to make a change pass.
-24. A form's return handover happens once, after the destination renders, and resolves an edited Character by identity rather than by name. A later page of results never repeats it, a control the user focused outside the form while a save was pending keeps the focus, and a rejected save moves no focus to the Gallery. See `src/App.svelte` and `src/components/Gallery.svelte`.
+24. A form's return handover happens once, after the destination renders, and resolves an edited Character by identity rather than by name. The browse card carries that identity as `data-character-id`, and `Gallery` matches the attribute rather than the rendered order. A later page of results never repeats the handover. A control the user focused outside the form while a save was pending keeps the focus, but a page with nothing focused hands over. A rejected save moves no focus to the Gallery. See `src/App.svelte` and `src/components/Gallery.svelte`.
 
 ---
 
@@ -358,8 +358,8 @@ Pitfalls:
 | `download.ts`: 60 s `setTimeout` before `revokeObjectURL` | An immediate revoke can cancel the download. |
 | `db.ts`: `tx.onabort` rejection | Aborted transactions fire only `abort`; without it the promise never settles. |
 | `MasonryGrid.svelte`: `matchMedia` read once at component creation | The duration is a construction-time constant; the values only drive `animate:flip` / `fade`. |
-| `App.svelte`: `closeForm` reads whether the form still holds focus | A heading or field in the disappearing form would strand focus, while a persistent control the user chose during a pending save is that user's decision. Both cases share one check. |
-| `Gallery.svelte`: `pendingReturn` is consumed by the effect that reads it | The request is one-shot on purpose. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
+| `App.svelte`: `closeForm` keeps the focus only for an outside control that holds it | A heading or field in the disappearing form would strand focus, and the body is not a choice. Only a persistent control outside the form, chosen during a pending save, is the user's decision to keep. |
+| `Gallery.svelte`: `returnFocusCharacterId` is the page's request, `pendingReturn` is its unspent copy | The request must be spent exactly once. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
 | `CharacterForm.svelte`: the heading carries `focus:ring-2` besides the shared outline | A form opened with the pointer does not match `:focus-visible`, so the unlayered outline is absent and the ring is the only indicator. |
 | `tests/setup.ts` shims | jsdom lacks `matchMedia`, WAAPI, and real `<dialog>` methods. The shims are approximations, not test logic. |
 

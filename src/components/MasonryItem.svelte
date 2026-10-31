@@ -105,6 +105,7 @@
       class="browse-card relative block w-full overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       aria-label={character.name}
       aria-describedby={imageUnavailable ? descriptionId : undefined}
+      data-character-id={character.id}
       onclick={() => onOpen(character.id)}
     >
       {@render cardImage()}

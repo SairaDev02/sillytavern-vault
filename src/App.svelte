@@ -47,7 +47,8 @@
   let addCharacterButton = $state<HTMLButtonElement | undefined>(undefined);
   let formRegion = $state<HTMLDivElement | undefined>(undefined);
   // A one-shot request for the remounted Gallery: the edited Character's card,
-  // or Search when that Character is not on the page it renders.
+  // or Search when that Character is not on the page it renders. The Gallery
+  // receives it under this same name, and `pendingReturn` is its unspent copy.
   let returnFocusCharacterId = $state<string | undefined>(undefined);
   // Empty at creation on purpose. An assistive technology only announces a
   // change to a live region that already existed, so the region is rendered
@@ -68,9 +69,7 @@
     // A rejection reaches the form, which keeps the draft and shows its message.
     await library.save(draft);
     deleteNotice = null;
-    await closeForm(
-      draft.id === undefined ? { kind: 'add' } : { kind: 'character', id: draft.id }
-    );
+    await closeForm(draft.id);
   }
 
   async function handleDelete(id: string) {
@@ -111,34 +110,48 @@
   }
 
   function cancelForm() {
-    const target = editingCharacter
-      ? { kind: 'character' as const, id: editingCharacter.id }
-      : { kind: 'add' as const };
-    void closeForm(target);
+    void closeForm();
   }
 
   /**
-   * Where focus goes when the form closes: the persistent Add action, or the
-   * edited Character's card in the remounted Gallery. The card is named by
-   * identity, because two Characters can share a name.
+   * The Character this close returns focus to, by identity. `undefined` means
+   * the form was an Add, whose return target is the persistent Add action. A
+   * draft that carries an identity is an edit of that record; a Cancel has no
+   * draft, so the open edit target supplies it. A name is never the target,
+   * because two Characters can share one.
    */
-  type ReturnTarget = { kind: 'add' } | { kind: 'character'; id: string };
+  function closingCharacterId(draftId?: string): string | undefined {
+    return draftId ?? editingCharacter?.id;
+  }
 
-  async function closeForm(target: ReturnTarget) {
-    // A heading or a field inside the form is about to disappear, so focus has
-    // to move. A persistent control outside it is the user's own choice made
-    // while the save was pending, so that choice stands.
-    const formHeldFocus = formRegion?.contains(document.activeElement) ?? false;
+  /**
+   * Whether a control outside the form should keep the focus it has. That is
+   * the user's own choice made while the save was pending. A heading or a field
+   * inside the closing form is not, because it is about to disappear. Neither
+   * is the body: it is what is left when nothing is focused, not a choice.
+   */
+  function outsideControlHoldsFocus(): boolean {
+    const active = document.activeElement;
+    if (active === null || active === document.body) return false;
+    return !(formRegion?.contains(active) ?? false);
+  }
+
+  async function closeForm(draftId?: string) {
+    const characterId = closingCharacterId(draftId);
+    const outsideControlKeepsFocus = outsideControlHoldsFocus();
 
     editingCharacter = null;
     showForm = false;
 
     // Only this close may ask for a destination, so a stale request can never
-    // outlive the form that made it.
-    returnFocusCharacterId =
-      formHeldFocus && target.kind === 'character' ? target.id : undefined;
+    // outlive the form that made it. The decision is made once, here: a close
+    // that leaves an outside control alone asks the remounted Gallery for
+    // nothing.
+    returnFocusCharacterId = outsideControlKeepsFocus ? undefined : characterId;
 
-    if (!formHeldFocus || target.kind === 'character') return;
+    if (outsideControlKeepsFocus) return;
+    // An edit handover is the Gallery's: only an Add returns here.
+    if (characterId !== undefined) return;
 
     await tick();
     addCharacterButton?.focus();
@@ -281,7 +294,7 @@
         onDownload={(character) => downloads.start(character)}
         notice={downloads.notice !== null && lightboxOpen ? downloadNotice : undefined}
         onLightboxChange={(open) => (lightboxOpen = open)}
-        focusCharacterId={returnFocusCharacterId}
+        returnFocusCharacterId={returnFocusCharacterId}
       />
     {/if}
   </main>
