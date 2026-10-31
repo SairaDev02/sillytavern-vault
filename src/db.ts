@@ -67,3 +67,36 @@ export async function dbDeleteMany(db: IDBDatabase, ids: string[]): Promise<void
   }
   return awaitTransaction(tx);
 }
+
+/**
+ * Store every record in one transaction, and resolve only when it commits.
+ *
+ * A rejection or an abort means nothing was written. `put` can also throw
+ * synchronously — an uncloneable value, for example — after earlier records are
+ * already queued; without an explicit abort those would commit on their own,
+ * so the batch is aborted instead and the original error is reported.
+ */
+export async function dbPutMany<T>(db: IDBDatabase, items: readonly T[]): Promise<void> {
+  if (items.length === 0) return;
+
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const committed = awaitTransaction(tx);
+
+  try {
+    for (const item of items) {
+      store.put(item);
+    }
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {
+      // The transaction already finished or aborted; nothing else to undo.
+    }
+    // The abort's rejection is not the cause, so the queueing error wins.
+    await committed.catch(() => undefined);
+    throw error;
+  }
+
+  return committed;
+}
