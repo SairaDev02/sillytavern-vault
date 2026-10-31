@@ -35,6 +35,10 @@
 
   let editingCharacter = $state<Character | null>(null);
   let showForm = $state(false);
+  // The identity of the form session that owns the page's form slot. A save is
+  // started by one session, and the user can start another while it is pending,
+  // so a completion may only close the form of the session that began it.
+  let formSession = $state(0);
   // Kept in the page shell so a delete failure survives closing the lightbox.
   let deleteNotice = $state<string | null>(null);
   // Reported by the Gallery, which owns the dialog, so this shell can present
@@ -65,11 +69,11 @@
 
   onDestroy(() => library.dispose());
 
-  async function handleSave(draft: CharacterDraft) {
+  async function handleSave(session: number, draft: CharacterDraft) {
     // A rejection reaches the form, which keeps the draft and shows its message.
     await library.save(draft);
     deleteNotice = null;
-    await closeForm(draft.id);
+    await closeForm(session, draft.id);
   }
 
   async function handleDelete(id: string) {
@@ -98,19 +102,32 @@
 
   function startAdd() {
     if (library.status !== 'ready') return;
+    // Add already owns the form slot: that open draft is this task, not a new one.
+    if (showForm && editingCharacter === null) return;
     editingCharacter = null;
-    showForm = true;
+    beginFormSession();
   }
 
   function startEdit(id: string) {
     const character = library.characters.find((candidate) => candidate.id === id);
     if (!character) return;
     editingCharacter = character;
+    beginFormSession();
+  }
+
+  /** One Add or Edit task for the page's form slot. A newer session replaces it. */
+  function beginFormSession() {
+    formSession += 1;
     showForm = true;
   }
 
-  function cancelForm() {
-    void closeForm();
+  function cancelForm(session: number) {
+    void closeForm(session);
+  }
+
+  /** Whether a form session still owns the page's form slot. */
+  function ownsForm(session: number): boolean {
+    return session === formSession;
   }
 
   /**
@@ -136,7 +153,11 @@
     return !(formRegion?.contains(active) ?? false);
   }
 
-  async function closeForm(draftId?: string) {
+  async function closeForm(session: number, draftId?: string) {
+    // A superseded session was replaced by the user's next task. Its completion
+    // may neither close that task's form nor move that task's focus.
+    if (!ownsForm(session)) return;
+
     const characterId = closingCharacterId(draftId);
     const outsideControlKeepsFocus = outsideControlHoldsFocus();
 
@@ -154,6 +175,7 @@
     if (characterId !== undefined) return;
 
     await tick();
+    if (!ownsForm(session)) return;
     addCharacterButton?.focus();
   }
 
@@ -253,11 +275,14 @@
 
     {#if showForm}
       <div bind:this={formRegion}>
-        {#key editingCharacter?.id ?? 'new'}
+        <!-- The form belongs to one session: a newer form replaces it, and a
+             save from a replaced form cannot close it. -->
+        {#key formSession}
+          {@const session = formSession}
           <CharacterForm
             editingCharacter={editingCharacter}
-            onSave={handleSave}
-            onCancel={cancelForm}
+            onSave={(draft) => handleSave(session, draft)}
+            onCancel={() => cancelForm(session)}
           />
         {/key}
       </div>

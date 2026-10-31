@@ -45,7 +45,7 @@ Avoid animating:
 - `height`
 - expensive filter effects over large images
 
-Prefer `transform` and `opacity`.
+Prefer transform-family properties (`transform`, `translate`, `scale`, and `rotate`) and `opacity`.
 
 ### 2.4 Images must be sized before they load
 
@@ -243,8 +243,9 @@ The item should remain visually quiet until interaction.
       class="pointer-events-none absolute inset-x-0 bottom-0
              bg-gradient-to-t from-black/60 to-transparent
              p-4 pt-12 opacity-0 transition-opacity duration-200
-             motion-safe:group-hover:opacity-100
-             motion-safe:group-focus-within:opacity-100"
+             group-hover:opacity-100
+             group-focus-within:opacity-100
+             motion-reduce:transition-none"
       aria-hidden="true"
     >
       {image.title}
@@ -252,6 +253,8 @@ The item should remain visually quiet until interaction.
   </button>
 </figure>
 ```
+
+The label classes above match the delivered card in `src/components/MasonryItem.svelte`. The movement is gated, and the label is not. Under reduced motion the fade is removed, and the label still appears on hover and on focus. Do not put the label's opacity or visibility behind `motion-safe:`.
 
 Keep hover animation subtle. A masonry gallery can contain many images, so large scale effects, blur, shadows, and continuous motion should be avoided.
 
@@ -362,7 +365,7 @@ const reduceMotion = window.matchMedia(
 ).matches;
 ```
 
-Read this once and subscribe to changes if the application needs to react while it is running. Keep the motion preference in a small reusable store/helper rather than duplicating it across gallery components.
+The delivered `MasonryGrid.svelte` reads this once per mount and derives its FLIP and fade durations from that value. It does not subscribe, so a preference changed while the grid is mounted applies on the next mount, such as after returning to the Gallery from a form. Subscribe only when a component must react while the page runs. If several components need the live value, keep the preference in one small store or helper instead of repeating the query.
 
 ## 10. Performance Budget
 
@@ -742,7 +745,7 @@ The implementation is complete when:
 - [ ] Responsive `srcset`/`sizes` prevents unnecessary image downloads when supported by the image source.
 - [ ] Filtering and sorting animate surviving items with keyed FLIP.
 - [ ] Initial rendering does not animate hundreds of items.
-- [ ] Hover/focus motion only changes transform/opacity.
+- [ ] Hover/focus motion only changes transform-family properties or opacity.
 - [ ] `prefers-reduced-motion` is respected.
 - [ ] Keyboard navigation works without a mouse.
 - [ ] Focus is visible.
@@ -761,7 +764,7 @@ The implementation is complete when:
 | List identity | Stable image IDs |
 | Layout animation | Svelte `animate:flip` |
 | Enter/exit | Short fade |
-| Hover motion | `transform` only, subtle scale |
+| Hover motion | Transform-family motion only, subtle scale |
 | Image loading | Native lazy loading + responsive sources |
 | Layout stability | Intrinsic width/height + aspect ratio |
 | Infinite loading | IntersectionObserver on a sentinel |

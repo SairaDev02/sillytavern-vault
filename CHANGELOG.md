@@ -75,7 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discarding a pending replacement restores the stored image and its known
   dimensions. Choosing the same file again starts a new preparation.
 - Saving freezes the draft and ignores duplicate submissions. A rejected save
-  keeps the prepared draft, shows the error, and unlocks the form for a retry.
+  in the still-open form keeps the prepared draft, shows the error, and unlocks
+  the form for a retry.
 - A failed delete is reported in a notice that says the Character is still in the
   library.
 - A failed batch delete reports the failure and keeps the selection, so the
@@ -88,8 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tab stop, so the next Tab reaches Name.
 - A save that begins moves focus to the form heading before a control it is about
   to disable, from Save and from Enter in Name. A rejected submission, including
-  the whitespace-only-name alert, does not, and a rejected save keeps the form,
-  the draft, the image, and the inline alert.
+  the whitespace-only-name alert, does not. A rejected save in the still-open
+  form keeps the draft, the image, and the inline alert.
+- A successful save no longer closes a newer Character form or takes its focus
+  when the user starts another task while that save is pending. The earlier save
+  still commits and publishes normally.
 - Closing the form hands focus back once. Add returns to Add Character. Edit
   returns to the edited Character's card, matched by identity so Characters that
   share a name are not confused. When that card is not on the rendered page,
