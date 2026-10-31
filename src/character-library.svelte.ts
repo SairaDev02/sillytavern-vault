@@ -226,6 +226,23 @@ export class CharacterLibrary {
   }
 
   /**
+   * Resolve once every mutation accepted before this call has settled.
+   *
+   * A Backup uses this as its read barrier: it queues behind the same chain as
+   * saves and deletes, so the canonical list it then reads already contains
+   * every accepted change. It deliberately does not wait for background image
+   * measurement and does not read storage again.
+   */
+  settled(): Promise<void> {
+    try {
+      this.#requireDatabase();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueue(() => Promise.resolve());
+  }
+
+  /**
    * Mark the instance inactive. New calls reject, late repairs and late
    * publications publish nothing, and an accepted mutation still commits and
    * settles. The connection closes once the queue drains.

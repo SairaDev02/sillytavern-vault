@@ -851,3 +851,61 @@ describe('CharacterLibrary: disposal', () => {
     expect((await stored(harness.databaseName))[0].name).toBe('Committed late');
   });
 });
+
+/**
+ * The read barrier a Backup uses before it snapshots the canonical list: it
+ * waits for accepted mutations, and nothing else.
+ */
+describe('CharacterLibrary: settle barrier', () => {
+  it('rejects with the unavailable kind before the library is ready', async () => {
+    const harness = makeHarness();
+
+    await expect(harness.library.settled()).rejects.toMatchObject({ kind: 'unavailable' });
+    expect(harness.readAll).not.toHaveBeenCalled();
+  });
+
+  it('resolves only after an accepted save has committed and published', async () => {
+    const held = holdWrites();
+    const harness = makeHarness({ write: held.write });
+    await harness.library.initialize();
+    held.hold();
+
+    const save = harness.library.save(draft());
+    await flushMicrotasks();
+    expect(held.pending).toHaveLength(1);
+
+    let settled = false;
+    const barrier = harness.library.settled().then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    // The save has not committed, so the barrier has not opened.
+    expect(settled).toBe(false);
+    expect(harness.library.characters).toEqual([]);
+
+    held.pending[0].release();
+    await save;
+    await barrier;
+
+    expect(settled).toBe(true);
+    expect(harness.library.characters).toHaveLength(1);
+  });
+
+  it('does not wait for a background measurement and does not read storage again', async () => {
+    const harness = makeHarness();
+    await seed(harness.databaseName, [
+      makeCharacter(1, { width: undefined, height: undefined }),
+    ]);
+    await harness.library.initialize();
+
+    // Start-up handed the record without a size to the repair, which is still
+    // pending: the barrier must not wait for that background work.
+    expect(harness.measures).toHaveLength(1);
+    const readsAfterStartUp = harness.readAll.mock.calls.length;
+
+    await expect(harness.library.settled()).resolves.toBeUndefined();
+
+    expect(harness.library.characters[0].width).toBeUndefined();
+    expect(harness.readAll.mock.calls.length).toBe(readsAfterStartUp);
+  });
+});
