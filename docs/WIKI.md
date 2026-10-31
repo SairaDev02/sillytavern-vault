@@ -707,6 +707,8 @@ A manual check ran on the merged delivery tree of the spec #65 work. The tree wa
 
 This is a manual smoke check, not part of `npm test`. Chrome freezes CSS transitions while its window is not visible. The hover samples were therefore taken after the window was brought to the front, with `document.visibilityState` `visible`. An earlier frozen-transition reading is not reported. Android Chrome, Firefox, Safari, physical touch, and any screen reader were not checked, so announcements, their timing, and their usability are unverified. The disabled-focus handover is observed as the order of the DOM change, not as the browser's own blur behaviour. The injected write failure exercises the recovery path in a real browser; it is not a real storage abort. Re-run the check when the form, the Gallery focus targets, or the lightbox close path changes. These results are not an application-wide accessibility audit or a WCAG conformance claim. This section is the record of the check, and it names the exact revision at its start. The pull request description carries the same revision and a summary; no separate detailed record was located, so none is claimed.
 
+The form-ownership repair was rechecked at revision `1ed5d8aaf781d000718c8e67a364fdc6550d4445`; its flows and limits are recorded in [PR #71's desktop recheck](https://github.com/SairaDev02/sillytavern-vault/pull/71#issuecomment-6541531086). The preceding check remains the record for `e766b8d`.
+
 ## 14. Verification and Build
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
