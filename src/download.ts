@@ -4,7 +4,7 @@ import type { Character } from './types';
 const DATA_URL_PATTERN = /^data:([^,;]+)((?:;[^,]*)?),(.*)$/s;
 
 /** How long the object URL for a download stays alive before it is released. */
-const OBJECT_URL_LIFETIME_MS = 60_000;
+export const OBJECT_URL_LIFETIME_MS = 60_000;
 
 /**
  * Parse a base64 image data URL into its components.
@@ -106,6 +106,25 @@ async function convertToPng(dataUrl: string): Promise<Blob> {
 }
 
 /**
+ * Hand a Blob to the browser as a download through a temporary link.
+ *
+ * The browser reads the blob after the click returns, so releasing the URL
+ * immediately can cancel the download. Release it later instead. This is the
+ * one place both the image download and the Backup are delivered from.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_LIFETIME_MS);
+}
+
+/**
  * Download a character's image as PNG.
  * - PNG source: decode base64 directly to Blob (fast path, no canvas)
  * - JPEG/WebP source: load via Image, draw to canvas, export as PNG
@@ -122,15 +141,5 @@ export async function downloadCharacterImage(character: Character): Promise<void
     blob = await convertToPng(character.image);
   }
 
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${sanitizeFilename(character.name)}.png`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  // The browser reads the blob after the click returns. Releasing the URL
-  // immediately can cancel the download, so release it later instead.
-  setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_LIFETIME_MS);
+  downloadBlob(blob, `${sanitizeFilename(character.name)}.png`);
 }

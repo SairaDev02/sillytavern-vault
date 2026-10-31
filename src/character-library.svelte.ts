@@ -1,4 +1,4 @@
-import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany } from './db';
+import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany, dbPutMany } from './db';
 import { generateId } from './id';
 import { measureImage } from './image';
 import { LibraryError } from './library-error';
@@ -24,6 +24,44 @@ export const REPAIR_WARNING =
 
 export type LibraryStatus = 'loading' | 'ready' | 'failed';
 
+/** What a Restore would add, and what it keeps because the library holds it. */
+export interface RestoreCounts {
+  added: number;
+  skipped: number;
+}
+
+/** One Restore batch split by the collision rule: what is written, and the counts. */
+export interface RestorePlan {
+  /** The records a write adds, in batch order. */
+  records: Character[];
+  counts: RestoreCounts;
+}
+
+/**
+ * The collision rule, in its one home: a record whose identity the library
+ * already holds is kept rather than written, and so is the second copy of an
+ * identity inside one batch. Restore and the section's preview both count with
+ * this function, so neither can state a different rule.
+ */
+export function planRestore(
+  records: readonly Character[],
+  present: readonly Character[]
+): RestorePlan {
+  const held = new Set(present.map((character) => character.id));
+  const added: Character[] = [];
+
+  for (const record of records) {
+    if (held.has(record.id)) continue;
+    held.add(record.id);
+    added.push(record);
+  }
+
+  return {
+    records: added,
+    counts: { added: added.length, skipped: records.length - added.length },
+  };
+}
+
 /** What the form hands over. The library owns identity, creation time, and size rules. */
 export interface CharacterDraft {
   id?: string;
@@ -40,6 +78,7 @@ export interface CharacterLibraryDeps {
   write?: (database: IDBDatabase, character: Character) => Promise<void>;
   remove?: (database: IDBDatabase, id: string) => Promise<void>;
   removeMany?: (database: IDBDatabase, ids: string[]) => Promise<void>;
+  writeMany?: (database: IDBDatabase, records: Character[]) => Promise<void>;
   measure?: (src: string) => Promise<{ width: number; height: number }>;
   generateId?: () => string;
   now?: () => number;
@@ -78,6 +117,7 @@ export class CharacterLibrary {
   readonly #write: (database: IDBDatabase, character: Character) => Promise<void>;
   readonly #remove: (database: IDBDatabase, id: string) => Promise<void>;
   readonly #removeMany: (database: IDBDatabase, ids: string[]) => Promise<void>;
+  readonly #writeMany: (database: IDBDatabase, records: Character[]) => Promise<void>;
   readonly #measure: (src: string) => Promise<{ width: number; height: number }>;
   readonly #generateId: () => string;
   readonly #now: () => number;
@@ -105,6 +145,7 @@ export class CharacterLibrary {
     this.#write = deps.write ?? dbAdd;
     this.#remove = deps.remove ?? dbDelete;
     this.#removeMany = deps.removeMany ?? dbDeleteMany;
+    this.#writeMany = deps.writeMany ?? dbPutMany;
     this.#measure = deps.measure ?? measureImage;
     this.#generateId = deps.generateId ?? generateId;
     this.#now = deps.now ?? Date.now;
@@ -226,6 +267,56 @@ export class CharacterLibrary {
   }
 
   /**
+   * Add every record the library does not already hold, in one transaction.
+   *
+   * Restore keeps each record's stored identity and creation time, so it can
+   * never overwrite or roll back local work. The collision rule is
+   * `planRestore`, applied here on the mutation chain against the list as it
+   * stands when the write is about to run, so the returned counts are what
+   * actually happened. A rejection means nothing was written and the canonical
+   * list is unchanged.
+   */
+  restore(records: Character[]): Promise<RestoreCounts> {
+    const copied = records.map((record) => ({ ...record }));
+    return this.#queueMutation(async (database) => {
+      const plan = planRestore(copied, this.#characters);
+
+      if (plan.records.length > 0) {
+        try {
+          await this.#writeMany(database, plan.records);
+        } catch (error) {
+          throw new LibraryError(
+            'write-failed',
+            'The Characters could not be restored.',
+            error
+          );
+        }
+        this.#publishMany(plan.records);
+        this.#scheduleRepair();
+      }
+
+      return plan.counts;
+    });
+  }
+
+  /**
+   * Resolve once every mutation accepted before this call has settled.
+   *
+   * A Backup uses this as its read barrier: it queues behind the same chain as
+   * saves and deletes, so the canonical list it then reads already contains
+   * every accepted change. It deliberately does not wait for background image
+   * measurement and does not read storage again.
+   */
+  settled(): Promise<void> {
+    try {
+      this.#requireDatabase();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueue(() => Promise.resolve());
+  }
+
+  /**
    * Mark the instance inactive. New calls reject, late repairs and late
    * publications publish nothing, and an accepted mutation still commits and
    * settles. The connection closes once the queue drains.
@@ -248,7 +339,7 @@ export class CharacterLibrary {
   }
 
   /** Reject immediately when unavailable; otherwise queue the write-and-publish step. */
-  #queueMutation(step: (database: IDBDatabase) => Promise<void>): Promise<void> {
+  #queueMutation<T>(step: (database: IDBDatabase) => Promise<T>): Promise<T> {
     let database: IDBDatabase;
     try {
       database = this.#requireDatabase();
@@ -278,7 +369,7 @@ export class CharacterLibrary {
   }
 
   /** Append a step to the one serialized chain. A failed step never poisons it. */
-  #enqueue(step: () => Promise<void>): Promise<void> {
+  #enqueue<T>(step: () => Promise<T>): Promise<T> {
     const result = this.#chain.then(step);
     this.#chain = result.then(
       () => undefined,
@@ -348,6 +439,12 @@ export class CharacterLibrary {
   #publishRemoval(ids: string[]): void {
     if (this.#disposed) return;
     this.#characters = this.#characters.filter((character) => !ids.includes(character.id));
+  }
+
+  /** Add a committed Restore batch to the canonical list in one step. */
+  #publishMany(records: Character[]): void {
+    if (this.#disposed) return;
+    this.#characters = [...this.#characters, ...records];
   }
 
   /**

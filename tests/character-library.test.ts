@@ -3,10 +3,11 @@ import {
   CharacterLibrary,
   LibraryError,
   REPAIR_WARNING,
+  planRestore,
   type CharacterLibraryDeps,
   type CharacterDraft,
 } from '../src/character-library.svelte';
-import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany } from '../src/db';
+import { openDB, dbAdd, dbGetAll, dbDelete, dbDeleteMany, dbPutMany } from '../src/db';
 import type { Character } from '../src/types';
 import { deferred, makeCharacter, PNG_1X1 } from './fixtures';
 
@@ -92,6 +93,9 @@ function makeHarness(overrides: Partial<CharacterLibraryDeps> = {}) {
   });
   const remove = vi.fn((database: IDBDatabase, id: string) => dbDelete(database, id));
   const removeMany = vi.fn((database: IDBDatabase, ids: string[]) => dbDeleteMany(database, ids));
+  const writeMany = vi.fn((database: IDBDatabase, records: Character[]) =>
+    dbPutMany(database, records)
+  );
   const logger = { warn: vi.fn(), error: vi.fn() };
 
   const deps: CharacterLibraryDeps = {
@@ -103,6 +107,7 @@ function makeHarness(overrides: Partial<CharacterLibraryDeps> = {}) {
     write,
     remove,
     removeMany,
+    writeMany,
     logger,
     ...overrides,
   };
@@ -118,6 +123,9 @@ function makeHarness(overrides: Partial<CharacterLibraryDeps> = {}) {
     write,
     remove,
     removeMany,
+    // The dependency the library actually uses, so a test can observe or gate
+    // an injected write without losing its spy.
+    writeMany: vi.mocked(deps.writeMany!),
     logger,
     setClock(value: number) {
       clock = value;
@@ -849,5 +857,312 @@ describe('CharacterLibrary: disposal', () => {
     await expect(save).resolves.toBeUndefined();
     expect(harness.library.characters[0].name).toBe('Stored');
     expect((await stored(harness.databaseName))[0].name).toBe('Committed late');
+  });
+});
+
+/**
+ * The read barrier a Backup uses before it snapshots the canonical list: it
+ * waits for accepted mutations, and nothing else.
+ */
+describe('CharacterLibrary: settle barrier', () => {
+  it('rejects with the unavailable kind before the library is ready', async () => {
+    const harness = makeHarness();
+
+    await expect(harness.library.settled()).rejects.toMatchObject({ kind: 'unavailable' });
+    expect(harness.readAll).not.toHaveBeenCalled();
+  });
+
+  it('resolves only after an accepted save has committed and published', async () => {
+    const held = holdWrites();
+    const harness = makeHarness({ write: held.write });
+    await harness.library.initialize();
+    held.hold();
+
+    const save = harness.library.save(draft());
+    await flushMicrotasks();
+    expect(held.pending).toHaveLength(1);
+
+    let settled = false;
+    const barrier = harness.library.settled().then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    // The save has not committed, so the barrier has not opened.
+    expect(settled).toBe(false);
+    expect(harness.library.characters).toEqual([]);
+
+    held.pending[0].release();
+    await save;
+    await barrier;
+
+    expect(settled).toBe(true);
+    expect(harness.library.characters).toHaveLength(1);
+  });
+
+  it('does not wait for a background measurement and does not read storage again', async () => {
+    const harness = makeHarness();
+    await seed(harness.databaseName, [
+      makeCharacter(1, { width: undefined, height: undefined }),
+    ]);
+    await harness.library.initialize();
+
+    // Start-up handed the record without a size to the repair, which is still
+    // pending: the barrier must not wait for that background work.
+    expect(harness.measures).toHaveLength(1);
+    const readsAfterStartUp = harness.readAll.mock.calls.length;
+
+    await expect(harness.library.settled()).resolves.toBeUndefined();
+
+    expect(harness.library.characters[0].width).toBeUndefined();
+    expect(harness.readAll.mock.calls.length).toBe(readsAfterStartUp);
+  });
+});
+
+/**
+ * Restore is additive, atomic, and idempotent. It runs on the same chain as
+ * saves and deletes, so the collision rule is always applied to the list as it
+ * stands when the write is about to run.
+ */
+describe('CharacterLibrary: restore', () => {
+  it('rejects with the unavailable kind before the library is ready', async () => {
+    const harness = makeHarness();
+
+    await expect(harness.library.restore([makeCharacter(1)])).rejects.toMatchObject({
+      kind: 'unavailable',
+    });
+
+    expect(harness.writeMany).not.toHaveBeenCalled();
+    expect(await stored(harness.databaseName)).toEqual([]);
+  });
+
+  it('adds every record with its stored identity and creation time in one write', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+    const records = [
+      makeCharacter(1, { name: 'Aria', createdAt: 111 }),
+      makeCharacter(2, { name: 'Bram', createdAt: 222 }),
+    ];
+
+    const result = await harness.library.restore(records);
+
+    expect(result).toEqual({ added: 2, skipped: 0 });
+    expect(harness.writeMany).toHaveBeenCalledTimes(1);
+    expect(harness.writeMany.mock.calls[0][1]).toEqual(records);
+    // One bulk write, never one write per record.
+    expect(harness.write).not.toHaveBeenCalled();
+    expect(harness.library.characters).toEqual(records);
+
+    const persisted = await stored(harness.databaseName);
+    expect(persisted.map((character) => [character.id, character.createdAt])).toEqual([
+      ['char-1', 111],
+      ['char-2', 222],
+    ]);
+  });
+
+  it('keeps the library copy of an id that is already present', async () => {
+    const harness = makeHarness();
+    const kept = makeCharacter(1, { name: 'Library copy', createdAt: 1 });
+    await seed(harness.databaseName, [kept]);
+    await harness.library.initialize();
+
+    const result = await harness.library.restore([
+      makeCharacter(1, { name: 'File copy', createdAt: 999 }),
+      makeCharacter(2),
+    ]);
+
+    expect(result).toEqual({ added: 1, skipped: 1 });
+    expect(harness.library.characters.map((character) => character.name)).toEqual([
+      'Library copy',
+      'Character 2',
+    ]);
+    expect(harness.writeMany.mock.calls[0][1].map((character) => character.id)).toEqual(['char-2']);
+
+    const persisted = await stored(harness.databaseName);
+    expect(persisted).toHaveLength(2);
+    expect(persisted.find((character) => character.id === 'char-1')).toMatchObject({
+      name: 'Library copy',
+      createdAt: 1,
+    });
+  });
+
+  it('writes nothing when every record is already present', async () => {
+    const harness = makeHarness();
+    await seed(harness.databaseName, [makeCharacter(1), makeCharacter(2)]);
+    await harness.library.initialize();
+    const before = harness.library.characters;
+
+    const result = await harness.library.restore([makeCharacter(1), makeCharacter(2)]);
+
+    expect(result).toEqual({ added: 0, skipped: 2 });
+    expect(harness.writeMany).not.toHaveBeenCalled();
+    expect(harness.library.characters).toBe(before);
+  });
+
+  it('counts a batch against a list exactly as the write counts it', async () => {
+    const harness = makeHarness();
+    const kept = makeCharacter(1, { name: 'Library copy' });
+    await seed(harness.databaseName, [kept]);
+    await harness.library.initialize();
+
+    const records = [
+      makeCharacter(1, { name: 'File copy' }),
+      makeCharacter(2),
+      makeCharacter(3),
+    ];
+
+    // The section previews its counts with this call, and the write recomputes
+    // them on the chain. One rule, so the two cannot disagree.
+    const preview = planRestore(records, harness.library.characters);
+    const applied = await harness.library.restore(records);
+
+    expect(preview.counts).toEqual(applied);
+    expect(preview.records.map((record) => record.id)).toEqual(['char-2', 'char-3']);
+    expect(applied).toEqual({ added: 2, skipped: 1 });
+  });
+
+  it('keeps the second copy of an identity in one batch out of the write', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+
+    const plan = planRestore(
+      [makeCharacter(1), makeCharacter(1, { name: 'Second copy' })],
+      []
+    );
+
+    expect(plan.counts).toEqual({ added: 1, skipped: 1 });
+    expect(plan.records.map((record) => record.name)).toEqual(['Character 1']);
+  });
+
+  it('runs after an accepted save, so the save is counted as present', async () => {
+    const held = holdWrites();
+    const harness = makeHarness({ write: held.write });
+    await harness.library.initialize();
+    held.hold();
+
+    // The generated identity of the accepted save is 'id-1'.
+    const save = harness.library.save(draft());
+    const restore = harness.library.restore([
+      { id: 'id-1', name: 'File copy', description: 'From the file', image: PNG_1X1, createdAt: 5 },
+      makeCharacter(2),
+    ]);
+    await flushMicrotasks();
+
+    // The save is accepted but not committed, so Restore waits behind it.
+    expect(held.pending).toHaveLength(1);
+    expect(harness.writeMany).not.toHaveBeenCalled();
+
+    held.pending[0].release();
+    await save;
+    const result = await restore;
+
+    expect(result).toEqual({ added: 1, skipped: 1 });
+    expect(harness.writeMany).toHaveBeenCalledTimes(1);
+    expect(harness.writeMany.mock.calls[0][1].map((character) => character.id)).toEqual(['char-2']);
+    expect(harness.library.characters.map((character) => character.name)).toEqual([
+      'Newcomer',
+      'Character 2',
+    ]);
+  });
+
+  it('publishes the added records in one step only after the transaction commits', async () => {
+    const gate = deferred<void>();
+    const harness = makeHarness({
+      writeMany: vi.fn(async (database: IDBDatabase, records: Character[]) => {
+        await gate.promise;
+        return dbPutMany(database, records);
+      }),
+    });
+    await harness.library.initialize();
+    const before = harness.library.characters;
+
+    const restore = harness.library.restore([makeCharacter(1), makeCharacter(2)]);
+    await flushMicrotasks();
+
+    // The transaction is queued but not committed: nothing is stored and the
+    // canonical list has not moved.
+    expect(harness.writeMany).toHaveBeenCalledTimes(1);
+    expect(harness.library.characters).toBe(before);
+    expect(await stored(harness.databaseName)).toEqual([]);
+
+    gate.resolve();
+    const result = await restore;
+
+    expect(result).toEqual({ added: 2, skipped: 0 });
+    expect(harness.library.characters).not.toBe(before);
+    expect(harness.library.characters.map((character) => character.id)).toEqual([
+      'char-1',
+      'char-2',
+    ]);
+    expect(await stored(harness.databaseName)).toHaveLength(2);
+  });
+
+  it('leaves the canonical list unchanged when the write fails', async () => {
+    const storageError = new Error('quota exceeded');
+    const harness = makeHarness();
+    await seed(harness.databaseName, [makeCharacter(1)]);
+    await harness.library.initialize();
+    const before = harness.library.characters;
+    harness.writeMany.mockRejectedValueOnce(storageError);
+
+    const refusal = await harness.library
+      .restore([makeCharacter(2)])
+      .catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(LibraryError);
+    expect((refusal as LibraryError).kind).toBe('write-failed');
+    expect((refusal as LibraryError).cause).toBe(storageError);
+    expect(harness.library.characters).toBe(before);
+    expect(await stored(harness.databaseName)).toHaveLength(1);
+
+    // A rejection never poisons the chain: the next Restore still commits.
+    await expect(harness.library.restore([makeCharacter(2)])).resolves.toEqual({
+      added: 1,
+      skipped: 0,
+    });
+  });
+
+  it('uses the repair warning when a restored record cannot be measured, once', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+
+    await harness.library.restore([
+      makeCharacter(1, { width: undefined, height: undefined }),
+    ]);
+    expect(harness.measures).toHaveLength(1);
+
+    const failure = new Error('decode failed');
+    harness.measures[0].reject(failure);
+    await flushMicrotasks();
+
+    expect(harness.library.repairWarning).toBe(REPAIR_WARNING);
+    expect(harness.logger.warn).toHaveBeenCalledTimes(1);
+    expect(harness.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Character 1'),
+      failure
+    );
+    expect(harness.library.characters[0].width).toBeUndefined();
+
+    // A later Restore is not a second attempt at the same identity and image.
+    await harness.library.restore([makeCharacter(2)]);
+    expect(harness.measures).toHaveLength(1);
+  });
+
+  it('offers added records without a size pair to the background repair', async () => {
+    const harness = makeHarness();
+    await harness.library.initialize();
+
+    await harness.library.restore([
+      makeCharacter(1, { width: undefined, height: undefined }),
+      makeCharacter(2),
+    ]);
+
+    // Only the record without a complete pair is measured.
+    expect(harness.measures.map((call) => call.src)).toEqual([PNG_1X1]);
+
+    harness.measures[0].resolve({ width: 8, height: 9 });
+    await flushMicrotasks();
+    expect(harness.writes).toHaveLength(1);
+    await committed(harness.writes[0]);
+    expect(harness.library.characters[0]).toMatchObject({ id: 'char-1', width: 8, height: 9 });
   });
 });
