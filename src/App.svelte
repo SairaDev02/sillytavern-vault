@@ -152,7 +152,7 @@
       <button
         type="button"
         disabled={library.status !== 'ready'}
-        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-accent-hover hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
         onclick={startAdd}
       >
         + Add Character
