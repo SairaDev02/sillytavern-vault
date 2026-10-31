@@ -489,6 +489,119 @@ describe('CharacterForm image preparation', () => {
     );
   });
 
+  describe('focus lifecycle', () => {
+    const heading = () => target.querySelector<HTMLHeadingElement>('h2')!;
+    const nameInput = () => target.querySelector<HTMLInputElement>('#char-name')!;
+
+    const KEYBOARD_STOP =
+      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const keyboardStops = () =>
+      [...target.querySelectorAll<HTMLElement>(KEYBOARD_STOP)].filter(
+        (element) => !(element as HTMLButtonElement).disabled
+      );
+
+    function expectFocusOn(element: Element | null | undefined, description: string) {
+      expect(element, `no control found for ${description}`).toBeTruthy();
+      expect(document.activeElement, `focus should be on ${description}`).toBe(element);
+    }
+
+    it('focuses its heading on entry without adding a keyboard stop, and the next Tab reaches Name', async () => {
+      mountForm(makeCharacter(1, { image: STORED, width: 5, height: 6 }));
+      await settle();
+
+      expect(heading().textContent?.trim()).toBe('Edit Character');
+      expectFocusOn(heading(), 'the form heading');
+      // A focus destination, not one more ordinary Tab stop.
+      expect(keyboardStops()).not.toContain(heading());
+      expect(keyboardStops()[0], 'the first keyboard stop').toBe(nameInput());
+    });
+
+    it('moves focus to the heading before a save disables the control it started from', async () => {
+      const pending = deferred<void>();
+      mountForm(
+        makeCharacter(1, { image: STORED, width: 5, height: 6 }),
+        () => pending.promise
+      );
+      await settle();
+
+      const save = saveButton();
+      save.focus();
+      save.click();
+
+      // Focus leaves the control in the handler, before the render disables it.
+      expectFocusOn(heading(), 'the form heading');
+
+      await settle();
+      expect(saveButton().disabled).toBe(true);
+      expectFocusOn(heading(), 'the form heading');
+
+      pending.resolve();
+      await settle();
+    });
+
+    it('takes the same save-start handover for a submission started in Name', async () => {
+      const pending = deferred<void>();
+      mountForm(
+        makeCharacter(1, { image: STORED, width: 5, height: 6 }),
+        () => pending.promise
+      );
+      await settle();
+
+      nameInput().focus();
+      target.querySelector<HTMLFormElement>('form')!.requestSubmit();
+
+      expectFocusOn(heading(), 'the form heading');
+
+      await settle();
+      expect(nameInput().disabled).toBe(true);
+      expectFocusOn(heading(), 'the form heading');
+
+      pending.resolve();
+      await settle();
+    });
+
+    it('rejects a whitespace-only name without the save-start handover', async () => {
+      const onSave = mountForm(null);
+      await settle();
+
+      nameInput().value = '   ';
+      nameInput().dispatchEvent(new Event('input', { bubbles: true }));
+      nameInput().focus();
+      target.querySelector<HTMLFormElement>('form')!.requestSubmit();
+      await settle();
+
+      expect(vi.mocked(alert)).toHaveBeenCalledWith('Name is required');
+      expect(onSave).not.toHaveBeenCalled();
+      // Nothing began, so focus stays where the user left it.
+      expectFocusOn(nameInput(), 'the Name field');
+      expect(nameInput().disabled).toBe(false);
+      expect(cancelButton().disabled).toBe(false);
+      expect(saveButton().textContent?.trim()).toBe('Save');
+    });
+
+    it('keeps the heading focused and the form usable when a save is rejected', async () => {
+      const onSave = vi
+        .fn<(data: SaveData) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('quota exceeded'));
+      mountForm(makeCharacter(1, { name: 'Stored', image: STORED, width: 5, height: 6 }), onSave);
+      await settle();
+
+      nameInput().focus();
+      target.querySelector<HTMLFormElement>('form')!.requestSubmit();
+      await settle();
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+        'Could not save the character'
+      );
+      expectFocusOn(heading(), 'the form heading');
+      expect(nameInput().value).toBe('Stored');
+      expect(nameInput().disabled).toBe(false);
+      expect(cancelButton().disabled).toBe(false);
+      expect(preview()?.getAttribute('src')).toBe(STORED);
+    });
+  });
+
   it('keeps the draft and names a refused edit as its own failure', async () => {
     const onSave = vi
       .fn<(data: SaveData) => Promise<void>>()

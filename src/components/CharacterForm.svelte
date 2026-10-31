@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import type { Character } from '../types';
   import type { CharacterDraft } from '../character-library.svelte';
   import { LibraryError } from '../library-error';
@@ -22,6 +22,17 @@
   let description = $state(untrack(() => editingCharacter?.description ?? ''));
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+
+  // The form's entry point and its refuge while saving. It is outside the
+  // <form>, so it stays focusable while every control inside is disabled.
+  let headingEl = $state<HTMLHeadingElement | undefined>(undefined);
+  let formEl = $state<HTMLFormElement | undefined>(undefined);
+
+  onMount(() => {
+    // The page mounts a new form for each target, so this is the one entry
+    // announcement for this task. It moves focus after the heading renders.
+    headingEl?.focus();
+  });
 
   // One preparation belongs to this draft. It owns choice ordering, the
   // image/dimension pairing, readiness, discard restoration, and the
@@ -71,6 +82,13 @@
       ...prepared,
     };
 
+    // Every control this submit is about to disable sits inside the form, so a
+    // focused one needs somewhere to go before the render disables it. The
+    // heading is outside the form and is never disabled. A submission that the
+    // validation above rejects returns before this point, so it does not look
+    // like a save that began.
+    if (formEl?.contains(document.activeElement)) headingEl?.focus();
+
     saving = true;
     saveError = null;
     try {
@@ -95,10 +113,17 @@
 </script>
 
 <div class="mx-auto max-w-lg rounded-xl border border-border bg-bg-secondary p-8">
-  <h2 class="mb-6 text-center text-xl font-bold text-accent">
+  <!-- Focused on entry and before a save disables the focused control, so it
+       needs an indicator that does not depend on how the form was opened.
+       tabindex="-1" keeps it out of the Tab order; the next Tab reaches Name. -->
+  <h2
+    bind:this={headingEl}
+    tabindex="-1"
+    class="mb-6 rounded text-center text-xl font-bold text-accent focus:outline-none focus:ring-2 focus:ring-focus-ring"
+  >
     {editingCharacter ? 'Edit Character' : 'Add New Character'}
   </h2>
-  <form onsubmit={handleSubmit}>
+  <form bind:this={formEl} onsubmit={handleSubmit}>
     <div class="mb-4">
       <label for="char-name" class="mb-1 block font-medium">Name *</label>
       <input
