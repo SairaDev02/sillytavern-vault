@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import packageJson from '../package.json';
 import {
+  BackupFileError,
   backupFileName,
   backupParts,
   createBackupHeader,
+  parseBackup,
   serializeCharacterRecord,
 } from '../src/backup-format';
 import type { Character } from '../src/types';
@@ -153,5 +155,133 @@ describe('backup file name', () => {
 
     expect(backupFileName(localEvening)).toBe('character-gallery-backup-2026-01-05.jsonl');
     expect(backupFileName(localMorning)).toBe('character-gallery-backup-2026-01-05.jsonl');
+  });
+});
+
+/** Feed a file as text chunks, so no one string spans the parser's input. */
+async function* chunksOf(text: string, chunkSize = text.length || 1): AsyncGenerator<string> {
+  for (let offset = 0; offset < text.length; offset += chunkSize) {
+    yield text.slice(offset, offset + chunkSize);
+  }
+}
+
+function headerLine(overrides: Record<string, unknown> = {}, omit: string[] = []): string {
+  const header: Record<string, unknown> = {
+    format: 'character-gallery/backup',
+    formatVersion: 1,
+    exportedAt: '2026-10-31T09:15:00.000Z',
+    appVersion: '1.0.0',
+    ...overrides,
+  };
+  for (const key of omit) delete header[key];
+  return JSON.stringify(header);
+}
+
+function fileOf(header: string, ...recordLines: string[]): string {
+  return `${[header, ...recordLines].join('\n')}\n`;
+}
+
+async function rejectionOf(text: string, chunkSize?: number): Promise<BackupFileError> {
+  const failure = await parseBackup(chunksOf(text, chunkSize)).then(
+    () => null,
+    (error: unknown) => error
+  );
+  expect(failure).toBeInstanceOf(BackupFileError);
+  return failure as BackupFileError;
+}
+
+describe('reading a Backup file', () => {
+  it('reads the header and every record from a file written by this app', async () => {
+    const characters = makeCharacters(3);
+    const text = backupParts(characters, EXPORTED_AT).join('');
+
+    const parsed = await parseBackup(chunksOf(text));
+
+    expect(parsed.header).toEqual(createBackupHeader(EXPORTED_AT));
+    expect(parsed.records).toEqual(characters);
+    expect(parsed.unreadable).toBe(0);
+  });
+
+  it('reassembles lines that span chunk boundaries', async () => {
+    const characters = makeCharacters(2);
+    const text = backupParts(characters, EXPORTED_AT).join('');
+
+    for (const chunkSize of [1, 2, 7, 13]) {
+      const parsed = await parseBackup(chunksOf(text, chunkSize));
+      expect(parsed.records).toEqual(characters);
+      expect(parsed.unreadable).toBe(0);
+    }
+  });
+
+  it('rejects an empty file as not JSON Lines', async () => {
+    const failure = await rejectionOf('');
+
+    expect(failure.kind).toBe('not-json-lines');
+    expect(failure.message).toMatch(/empty/i);
+  });
+
+  it('rejects a file whose first line is not JSON', async () => {
+    const failure = await rejectionOf('This is a text file, not a Backup\n');
+
+    expect(failure.kind).toBe('not-json-lines');
+    expect(failure.message).toMatch(/not a Character Gallery Backup/i);
+  });
+
+  it('rejects an unreadable header', async () => {
+    const notAnObject = await rejectionOf('123\n');
+    const missingFields = await rejectionOf(`${headerLine({}, ['exportedAt'])}\n`);
+
+    for (const failure of [notAnObject, missingFields]) {
+      expect(failure.kind).toBe('header');
+      expect(failure.message).toMatch(/header/i);
+    }
+  });
+
+  it('rejects a file for another format', async () => {
+    const failure = await rejectionOf(
+      fileOf(headerLine({ format: 'some-other-tool/export' }), serializeCharacterRecord(makeCharacter(1)))
+    );
+
+    expect(failure.kind).toBe('format');
+    expect(failure.message).toMatch(/not a Character Gallery Backup/i);
+    expect(failure.message).toMatch(/some-other-tool\/export/);
+  });
+
+  it('refuses an unsupported format version and names the declared version', async () => {
+    const newer = await rejectionOf(fileOf(headerLine({ formatVersion: 2 })));
+    const future = await rejectionOf(fileOf(headerLine({ formatVersion: 99 })));
+
+    expect(newer.kind).toBe('version');
+    expect(newer.message).toMatch(/\b2\b/);
+    expect(future.kind).toBe('version');
+    expect(future.message).toMatch(/\b99\b/);
+  });
+
+  it('admits a record with the five stored fields and the right types', async () => {
+    const character = makeCharacter(5);
+
+    const parsed = await parseBackup(
+      chunksOf(fileOf(headerLine(), serializeCharacterRecord(character)))
+    );
+
+    expect(parsed.records).toEqual([character]);
+  });
+
+  it('skips and counts a record whose stored fields are missing or mistyped', async () => {
+    const valid = serializeCharacterRecord(makeCharacter(1));
+    const lines = [
+      valid,
+      JSON.stringify({ ...makeCharacter(2), id: undefined }),
+      JSON.stringify({ ...makeCharacter(3), name: 7 }),
+      JSON.stringify({ ...makeCharacter(4), description: null }),
+      JSON.stringify({ ...makeCharacter(5), image: false }),
+      JSON.stringify({ ...makeCharacter(6), createdAt: '1700000000000' }),
+      '{"not": "json"',
+    ];
+
+    const parsed = await parseBackup(chunksOf(fileOf(headerLine(), ...lines)));
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['char-1']);
+    expect(parsed.unreadable).toBe(lines.length - 1);
   });
 });
