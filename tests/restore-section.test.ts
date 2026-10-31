@@ -251,6 +251,30 @@ describe('Restore', () => {
     expect(persisted).toHaveLength(2);
   });
 
+  it('reports each skipped record by its line and what it failed on', async () => {
+    await seedDatabase(APP_DB, []);
+    app = mount(App, { target });
+    await waitForReady();
+
+    // Header line 1, one good record on line 2, then a nameless record and a
+    // line that is not JSON at all.
+    const text = backupText([makeCharacter(1)], [
+      JSON.stringify({ ...makeCharacter(2), name: '   ' }),
+      'not json at all',
+    ]);
+    await restoreFile(backupFile(text));
+
+    await waitFor(() => expect(figures()).toHaveLength(1));
+    // The rest of the file is restored, and nothing is dropped silently.
+    expect(statusText()).toMatch(/1 added/);
+    expect(statusText()).toMatch(/2 records could not be read/);
+    expect(statusText()).toMatch(/line 3: the name is missing/);
+    expect(statusText()).toMatch(/line 4: the line is not a record/);
+
+    const persisted = await storedCharacters(APP_DB);
+    expect(persisted.map((character) => character.id)).toEqual(['char-1']);
+  });
+
   it('writes nothing when the confirmation is cancelled, and the same file can be chosen again', async () => {
     await seedDatabase(APP_DB, [makeCharacter(1)]);
     app = mount(App, { target });
@@ -323,6 +347,49 @@ describe('Restore', () => {
 
     expect(confirmSpy()).not.toHaveBeenCalled();
     expect(alertText()).toMatch(/format version 2/i);
+    expect(await storedCharacters(APP_DB)).toHaveLength(1);
+  });
+
+  it('reports a file whose records could not be read, writing nothing', async () => {
+    await seedDatabase(APP_DB, [makeCharacter(1)]);
+    app = mount(App, { target });
+    await waitForReady();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const text = backupText([], [
+      JSON.stringify({ ...makeCharacter(2), name: 7 }),
+      JSON.stringify({ ...makeCharacter(3), image: 'data:text/plain;base64,aGVsbG8=' }),
+    ]);
+    await restoreFile(backupFile(text));
+
+    expect(confirmSpy()).not.toHaveBeenCalled();
+    expect(statusText()).toMatch(/nothing was written/i);
+    expect(statusText()).toMatch(/2 records could not be read/);
+    expect(statusText()).toMatch(/line 2: the name is missing/);
+    expect(statusText()).toMatch(/line 3: the image is not an image/);
+    expect(sectionAlert()).toBeNull();
+    expect(figures()).toHaveLength(1);
+    expect(await storedCharacters(APP_DB)).toHaveLength(1);
+  });
+
+  it('refuses a file that carries one identity twice and writes nothing', async () => {
+    await seedDatabase(APP_DB, [makeCharacter(1)]);
+    app = mount(App, { target });
+    await waitForReady();
+    await waitFor(() => expect(figures()).toHaveLength(1));
+
+    const text = backupText([
+      makeCharacter(2),
+      makeCharacter(3),
+      makeCharacter(2, { name: 'Second copy' }),
+    ]);
+    await restoreFile(backupFile(text));
+
+    expect(confirmSpy()).not.toHaveBeenCalled();
+    expect(alertText()).toMatch(/damaged/i);
+    expect(alertText()).toMatch(/same Character id/i);
+    expect(statusText()).toBe('');
+    expect(figures()).toHaveLength(1);
     expect(await storedCharacters(APP_DB)).toHaveLength(1);
   });
 
@@ -419,8 +486,13 @@ describe('Restore', () => {
     search.focus();
     await settle();
 
-    await restoreFile(backupFile(backupText([makeCharacter(9)])));
+    await restoreFile(
+      backupFile(
+        backupText([makeCharacter(9)], [JSON.stringify({ ...makeCharacter(10), name: 7 })])
+      )
+    );
     await waitFor(() => expect(figures()).toHaveLength(1));
+    expect(statusText()).toMatch(/line 3: the name is missing/);
 
     // The same search input and the same sort, not a remounted Gallery.
     expect(searchInput()).toBe(search);

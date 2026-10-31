@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import packageJson from '../package.json';
 import {
   BackupFileError,
+  MAX_LINE_LENGTH,
   backupFileName,
   backupParts,
   createBackupHeader,
@@ -199,7 +200,7 @@ describe('reading a Backup file', () => {
 
     expect(parsed.header).toEqual(createBackupHeader(EXPORTED_AT));
     expect(parsed.records).toEqual(characters);
-    expect(parsed.unreadable).toBe(0);
+    expect(parsed.unreadable).toEqual([]);
   });
 
   it('reassembles lines that span chunk boundaries', async () => {
@@ -209,7 +210,7 @@ describe('reading a Backup file', () => {
     for (const chunkSize of [1, 2, 7, 13]) {
       const parsed = await parseBackup(chunksOf(text, chunkSize));
       expect(parsed.records).toEqual(characters);
-      expect(parsed.unreadable).toBe(0);
+      expect(parsed.unreadable).toEqual([]);
     }
   });
 
@@ -282,6 +283,329 @@ describe('reading a Backup file', () => {
     const parsed = await parseBackup(chunksOf(fileOf(headerLine(), ...lines)));
 
     expect(parsed.records.map((record) => record.id)).toEqual(['char-1']);
-    expect(parsed.unreadable).toBe(lines.length - 1);
+    expect(parsed.unreadable).toHaveLength(lines.length - 1);
+  });
+});
+
+/**
+ * The record matrix from the format contract. A field the contract names must
+ * be usable; anything the contract leaves out is ignored, and a dimension pair
+ * that is not complete and positive is dropped instead of failing the record.
+ */
+function recordLine(overrides: Record<string, unknown>, omit: string[] = []): string {
+  const record: Record<string, unknown> = { ...makeCharacter(1), ...overrides };
+  for (const key of omit) delete record[key];
+  return JSON.stringify(record);
+}
+
+async function parseRecords(...lines: string[]) {
+  return parseBackup(chunksOf(fileOf(headerLine(), ...lines)));
+}
+
+describe('record matrix: name', () => {
+  it('stores a name with content as written, without trimming it', async () => {
+    const parsed = await parseRecords(recordLine({ name: '  Aria  ' }));
+
+    expect(parsed.records).toHaveLength(1);
+    expect(parsed.records[0].name).toBe('  Aria  ');
+  });
+
+  it('skips a record whose name is missing, empty, or only whitespace', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'missing', name: undefined }),
+      recordLine({ id: 'number', name: 7 }),
+      recordLine({ id: 'empty', name: '' }),
+      recordLine({ id: 'blank', name: ' \t\n ' })
+    );
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toHaveLength(4);
+  });
+});
+
+describe('record matrix: description and creation time', () => {
+  it('admits an empty description', async () => {
+    const parsed = await parseRecords(recordLine({ description: '' }));
+
+    expect(parsed.records).toHaveLength(1);
+    expect(parsed.records[0].description).toBe('');
+  });
+
+  it('skips a record whose creation time is not a finite number', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'text', createdAt: '1700000000000' }),
+      recordLine({ id: 'null', createdAt: null }),
+      recordLine({ id: 'absent' }, ['createdAt']),
+      recordLine({ id: 'bool', createdAt: true })
+    );
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toHaveLength(4);
+  });
+});
+
+describe('record matrix: image data URL shape', () => {
+  it('admits an image data URL whose type is image, that is base64, with a payload', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'png', image: 'data:image/png;base64,AAAA' }),
+      recordLine({ id: 'svg', image: 'data:image/svg+xml;base64,PHN2Zy8+' }),
+      recordLine({ id: 'param', image: 'data:image/jpeg;charset=utf-8;base64,/9j/4AAQ' }),
+      // The bytes are never decoded, so a shaped payload is enough.
+      recordLine({ id: 'junk', image: 'data:image/png;base64,not actually base64!!' })
+    );
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['png', 'svg', 'param', 'junk']);
+    expect(parsed.unreadable).toEqual([]);
+  });
+
+  it('skips an image that is not an image data URL with a base64 payload', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'url', image: 'https://example.com/aria.png' }),
+      recordLine({ id: 'text', image: 'data:text/plain;base64,aGVsbG8=' }),
+      recordLine({ id: 'plain', image: 'data:image/png,aGVsbG8=' }),
+      recordLine({ id: 'empty', image: 'data:image/png;base64,' }),
+      recordLine({ id: 'number', image: 7 })
+    );
+
+    expect(parsed.records).toEqual([]);
+    expect(parsed.unreadable).toHaveLength(5);
+  });
+});
+
+describe('record matrix: dimensions and unknown fields', () => {
+  it('keeps a complete positive size pair', async () => {
+    const parsed = await parseRecords(recordLine({ width: 832, height: 1216 }));
+
+    expect(parsed.records[0]).toMatchObject({ width: 832, height: 1216 });
+  });
+
+  it('drops a partial, zero, negative, or non-finite pair and keeps the record', async () => {
+    const cases: Record<string, unknown>[] = [
+      { id: 'width-only', width: 64, height: undefined },
+      { id: 'height-only', width: undefined, height: 32 },
+      { id: 'zero', width: 0, height: 32 },
+      { id: 'negative', width: 64, height: -32 },
+      { id: 'null', width: 64, height: null },
+      { id: 'text', width: '64', height: 32 },
+    ];
+
+    const parsed = await parseRecords(...cases.map((overrides) => recordLine(overrides)));
+
+    expect(parsed.unreadable).toEqual([]);
+    expect(parsed.records.map((record) => record.id)).toEqual(cases.map((c) => c.id));
+    for (const record of parsed.records) {
+      expect(record).not.toHaveProperty('width');
+      expect(record).not.toHaveProperty('height');
+    }
+  });
+
+  it('ignores unknown extra fields', async () => {
+    const parsed = await parseRecords(
+      recordLine({ unexpected: 'not part of the contract', nested: { a: 1 } })
+    );
+
+    expect(parsed.records).toEqual([makeCharacter(1)]);
+  });
+});
+
+/**
+ * Nothing is dropped silently: every line that was not admitted is reported by
+ * its position in the file, in terms a person can act on. The header is line 1,
+ * a tolerated blank line still occupies its line, and the first failure in
+ * contract order is the one reported.
+ */
+describe('unreadable record report', () => {
+  it('reports each skipped record by its line and what it failed on', async () => {
+    const text = [
+      headerLine(),
+      serializeCharacterRecord(makeCharacter(1)),
+      recordLine({ id: 'no-name', name: '   ' }),
+      '',
+      'not json at all',
+      '',
+    ].join('\n');
+
+    const parsed = await parseBackup(chunksOf(`${text}\n`));
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['char-1']);
+    expect(parsed.unreadable).toEqual([
+      { line: 3, reason: 'the name is missing' },
+      { line: 5, reason: 'the line is not a record' },
+    ]);
+  });
+
+  it('names the field each record failed on in the person\'s terms', async () => {
+    const lines = [
+      recordLine({}, ['id']),
+      recordLine({}, ['name']),
+      recordLine({}, ['description']),
+      recordLine({}, ['createdAt']),
+      recordLine({}, ['image']),
+      recordLine({ image: 'https://example.com/aria.png' }),
+      recordLine({ image: 'data:image/png;base64,' }),
+    ];
+
+    const parsed = await parseRecords(...lines);
+
+    expect(parsed.unreadable.map((entry) => entry.reason)).toEqual([
+      'the id is missing',
+      'the name is missing',
+      'the description is missing',
+      'the creation time is missing',
+      'the image is missing',
+      'the image is not an image',
+      'the image is empty',
+    ]);
+    expect(parsed.unreadable.map((entry) => entry.line)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('reports the first failing field in contract order', async () => {
+    const parsed = await parseRecords(JSON.stringify({ id: '', image: 'nope' }));
+
+    expect(parsed.unreadable).toEqual([{ line: 2, reason: 'the id is missing' }]);
+  });
+});
+
+/**
+ * A file that carries one identity twice cannot be applied as an additive
+ * Restore, so it is a structural failure: the whole file is refused before any
+ * record is handed back, and nothing is written.
+ */
+describe('duplicate identities', () => {
+  it('rejects the whole file when two admitted records carry the same id', async () => {
+    const failure = await rejectionOf(
+      fileOf(
+        headerLine(),
+        serializeCharacterRecord(makeCharacter(1)),
+        serializeCharacterRecord(makeCharacter(2)),
+        serializeCharacterRecord(makeCharacter(1, { name: 'Second copy' }))
+      )
+    );
+
+    expect(failure.kind).toBe('duplicate-id');
+    expect(failure.message).toMatch(/same Character id/i);
+  });
+
+  it('rejects a file that carries the same id three times', async () => {
+    const failure = await rejectionOf(
+      fileOf(headerLine(), ...[1, 2, 3].map(() => serializeCharacterRecord(makeCharacter(4))))
+    );
+
+    expect(failure.kind).toBe('duplicate-id');
+  });
+
+  it('does not treat an unreadable copy of an id as a duplicate', async () => {
+    const parsed = await parseRecords(
+      recordLine({ id: 'char-1' }),
+      recordLine({ id: 'char-1', name: 7 })
+    );
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['char-1']);
+    expect(parsed.unreadable).toHaveLength(1);
+  });
+});
+
+/**
+ * One line that is longer than the reader's bound cannot be a record, so it is
+ * a structural failure: the file is refused rather than buffered without limit.
+ * The bound is exercised at test scale through the parser's option, because the
+ * production bound is 128 MiB.
+ */
+describe('the line bound', () => {
+  it('bounds a line at 128 MiB', () => {
+    expect(MAX_LINE_LENGTH).toBe(134_217_728);
+  });
+
+  it('rejects a file whose line is longer than the bound', async () => {
+    const failure = await parseBackup(
+      chunksOf(fileOf(headerLine(), 'x'.repeat(200))),
+      { maxLineLength: 128 }
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    expect(failure).toBeInstanceOf(BackupFileError);
+    expect((failure as BackupFileError).kind).toBe('line-too-long');
+    expect((failure as BackupFileError).message).toMatch(/longer than a record can be/i);
+  });
+
+  it('rejects a long line that only arrives as many chunks', async () => {
+    const failure = await parseBackup(
+      chunksOf(fileOf(headerLine(), 'y'.repeat(200)), 7),
+      { maxLineLength: 128 }
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    expect((failure as BackupFileError).kind).toBe('line-too-long');
+  });
+
+  it('admits a line at the bound', async () => {
+    const line = recordLine({ name: 'x'.repeat(128) });
+
+    const parsed = await parseBackup(chunksOf(fileOf(headerLine(), line)), {
+      maxLineLength: line.length,
+    });
+
+    expect(parsed.unreadable).toEqual([]);
+    expect(parsed.records[0].name).toHaveLength(128);
+  });
+});
+
+/**
+ * What a file picked from a disk or another operating system may look like: a
+ * byte-order mark, CRLF endings, blank lines, and a final newline. None of them
+ * is damage, so none of them changes what is restored.
+ */
+describe('file tolerances', () => {
+  it('tolerates a leading UTF-8 BOM and CRLF line endings at any chunk boundary', async () => {
+    const characters = makeCharacters(2);
+    const text =
+      '\uFEFF' +
+      backupParts(characters, EXPORTED_AT)
+        .join('')
+        .replace(/\n/g, '\r\n');
+
+    for (const chunkSize of [1, 3, 5]) {
+      const parsed = await parseBackup(chunksOf(text, chunkSize));
+      expect(parsed.header).toEqual(createBackupHeader(EXPORTED_AT));
+      expect(parsed.records).toEqual(characters);
+      expect(parsed.unreadable).toEqual([]);
+    }
+  });
+
+  it('tolerates whitespace-only lines between records and a trailing newline', async () => {
+    const text =
+      [
+        '',
+        '  ',
+        headerLine(),
+        '',
+        serializeCharacterRecord(makeCharacter(1)),
+        '\t',
+        serializeCharacterRecord(makeCharacter(2)),
+        '   ',
+      ].join('\n') + '\n';
+
+    const parsed = await parseBackup(chunksOf(text, 11));
+
+    expect(parsed.records.map((record) => record.id)).toEqual(['char-1', 'char-2']);
+    expect(parsed.unreadable).toEqual([]);
+  });
+
+  it('counts a skipped line at its physical line, blank lines included', async () => {
+    const text = [
+      headerLine(),
+      '',
+      serializeCharacterRecord(makeCharacter(1)),
+      '',
+      recordLine({ name: '   ' }),
+    ].join('\r\n');
+
+    const parsed = await parseBackup(chunksOf(`${text}\r\n`, 4));
+
+    expect(parsed.unreadable).toEqual([{ line: 5, reason: 'the name is missing' }]);
   });
 });
