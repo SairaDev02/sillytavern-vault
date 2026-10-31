@@ -459,6 +459,7 @@ Pitfalls:
 - A Backup handoff is not proof that the browser or the operating system saved the file. Nothing reports a saved file, and a failure after the handoff is invisible to the app.
 - A Restore report proves what the library committed, not that an image will display. Restore validates the image data URL's shape and never decodes the bytes, so a byte-corrupt image restores and shows the existing image fallback.
 - A Restore holds the admitted records in memory until its one transaction commits, because an IndexedDB transaction cannot stay open across a stream.
+- Restore refuses a file with one line longer than `MAX_LINE_LENGTH` (128 MiB), so one over-long record rejects the whole file. Backup sets no per-image size limit, so the app can write a Backup that Restore then refuses.
 - Browser storage protection is advisory. A denial, a browser that does not report protection, or a failed check changes nothing about Backup, Restore, or normal use, and the app cannot force protection.
 - Android, Firefox, Safari, physical touch, and real screen-reader sessions are unverified for Backup and Restore. The recheck used headless Edge on one desktop viewport and intercepted the native dialog and file chooser.
 - No thumbnails or blob storage; images are base64 strings held in memory for every record.
