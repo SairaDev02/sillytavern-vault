@@ -46,6 +46,9 @@
   // that decides whether the user was still inside the form when it closed.
   let addCharacterButton = $state<HTMLButtonElement | undefined>(undefined);
   let formRegion = $state<HTMLDivElement | undefined>(undefined);
+  // A one-shot request for the remounted Gallery: the edited Character's card,
+  // or Search when that Character is not on the page it renders.
+  let returnFocusCharacterId = $state<string | undefined>(undefined);
   // Empty at creation on purpose. An assistive technology only announces a
   // change to a live region that already existed, so the region is rendered
   // empty and its text arrives after the element is in the document.
@@ -130,11 +133,15 @@
     editingCharacter = null;
     showForm = false;
 
-    if (!formHeldFocus) return;
-    if (target.kind === 'add') {
-      await tick();
-      addCharacterButton?.focus();
-    }
+    // Only this close may ask for a destination, so a stale request can never
+    // outlive the form that made it.
+    returnFocusCharacterId =
+      formHeldFocus && target.kind === 'character' ? target.id : undefined;
+
+    if (!formHeldFocus || target.kind === 'character') return;
+
+    await tick();
+    addCharacterButton?.focus();
   }
 
   function retry() {
@@ -274,6 +281,7 @@
         onDownload={(character) => downloads.start(character)}
         notice={downloads.notice !== null && lightboxOpen ? downloadNotice : undefined}
         onLightboxChange={(open) => (lightboxOpen = open)}
+        focusCharacterId={returnFocusCharacterId}
       />
     {/if}
   </main>

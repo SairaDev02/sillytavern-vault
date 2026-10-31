@@ -4,7 +4,8 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import App from '../src/App.svelte';
 import { openDB, dbGetAll, STORE_NAME } from '../src/db';
 import type { Character } from '../src/types';
-import { deferred, makeCharacter } from './fixtures';
+import { deferred, makeCharacter, makeCharacters } from './fixtures';
+import { PAGE_SIZE } from '../src/gallery-utils';
 
 // The download helper is the seam the spec names. Mocking it here lets a test
 // decide when the page's attempt settles, instead of depending on the browser.
@@ -1627,6 +1628,13 @@ describe('App', () => {
       control.click();
     }
 
+    /** The observer currently watching a rendered sentinel. */
+    function activeObserver(): MockIntersectionObserver | undefined {
+      return MockIntersectionObserver.instances.find((observer) =>
+        [...observer.elements].some((element) => element.isConnected)
+      );
+    }
+
     async function openAddForm() {
       await waitForReady();
       activate(addButton());
@@ -1739,6 +1747,161 @@ describe('App', () => {
       // The save finished while the user was elsewhere; it must not pull focus back.
       expect(target.querySelector('main form')).toBeNull();
       expectFocusOn(dismiss, 'the notice Dismiss control');
+    });
+
+    it('returns focus to the edited Character card by identity when names repeat', async () => {
+      await seedDatabase([
+        makeCharacter(1, { name: 'Twin', description: 'the older twin' }),
+        makeCharacter(2, { name: 'Twin', description: 'the newer twin' }),
+      ]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(2));
+      await openEditForm('the older twin');
+
+      activate(buttonWithText('Cancel')!);
+      await settle();
+
+      expect(dialog()).toBeNull();
+      expect(figures()).toHaveLength(2);
+      // The first card with this name belongs to the other Character.
+      expectFocusOn(cardFor('the older twin'), "the edited Character's card");
+    });
+
+    it("returns focus to the edited Character's card after a rename", async () => {
+      await seedDatabase([
+        makeCharacter(1, { name: 'Original', description: 'kept detail' }),
+        makeCharacter(2, { name: 'Bystander', description: 'other detail' }),
+      ]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(2));
+      await openEditForm('kept detail');
+
+      setName('Renamed');
+      activate(target.querySelector<HTMLButtonElement>('form button[type="submit"]')!);
+      await waitFor(() => expect(target.textContent).toContain('Renamed'));
+      await settle();
+
+      expect(dialog()).toBeNull();
+      expectFocusOn(cardFor('kept detail'), "the edited Character's card");
+    });
+
+    it('falls back to Search when the edited Character is not on the rendered page', async () => {      const records = makeCharacters(PAGE_SIZE + 6).map((character) =>
+        character.id === 'char-1' ? { ...character, description: 'the oldest record' } : character
+      );
+      await seedDatabase(records);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(PAGE_SIZE));
+
+      // The oldest Character is only rendered once a second page arrives.
+      activeObserver()!.reveal();
+      await settle();
+      await waitFor(() => expect(figures()).toHaveLength(PAGE_SIZE + 6));
+
+      await openEditForm('the oldest record');
+
+      activate(buttonWithText('Cancel')!);
+      await settle();
+
+      // The current Gallery reset stands, so that card is not rendered now.
+      expect(figures()).toHaveLength(PAGE_SIZE);
+      expectFocusOn(searchInput(), 'the Search field');
+
+      // A later page must not retry the completed handover.
+      activeObserver()!.reveal();
+      await settle();
+      expect(figures()).toHaveLength(PAGE_SIZE + 6);
+      expectFocusOn(searchInput(), 'the Search field');
+    });
+
+    it('leaves a persistent control chosen during a pending edit in place', async () => {
+      await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(1));
+      await openEditForm('Description 1');
+
+      setName('Edited');
+      activate(target.querySelector<HTMLButtonElement>('form button[type="submit"]')!);
+      addButton().focus();
+
+      await waitFor(() => expect(target.textContent).toContain('Edited'));
+      await settle();
+
+      expect(target.querySelector('main form')).toBeNull();
+      expectFocusOn(addButton(), 'the Add Character button');
+    });
+
+    it('still restores focus to the card when the lightbox closes normally', async () => {
+      await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(1));
+
+      const card = cardFor('Description 1');
+      card.focus();
+      card.click();
+      await settle();
+      await waitFor(() => expect(dialog()?.open).toBe(true));
+
+      activate(target.querySelector<HTMLButtonElement>('dialog button[aria-label="Close"]')!);
+      await settle();
+
+      expect(dialog()).toBeNull();
+      expectFocusOn(cardFor('Description 1'), 'the card that opened the dialog');
+    });
+
+    it('rejects a whitespace-only name without a return handover', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+      await chooseImage();
+
+      nameInput().focus();
+      setName('   ');
+      target.querySelector<HTMLFormElement>('form')!.requestSubmit();
+      await settle();
+
+      expect(vi.mocked(alert)).toHaveBeenCalledWith('Name is required');
+      // The submission was rejected, so the form stays and nothing moved.
+      expect(target.querySelector('main form')).not.toBeNull();
+      expectFocusOn(nameInput(), 'the Name field');
+    });
+
+    it('performs no return handover when a save is rejected, and keeps the draft', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+      setName('Kept Draft');
+      setDescription('Keep this description');
+      await chooseImage();
+      const chosenImage = preview()!.getAttribute('src');
+
+      const restore = await breakStoreMethod('put');
+      activate(target.querySelector<HTMLButtonElement>('form button[type="submit"]')!);
+      await waitFor(() =>
+        expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+          'Could not save the character'
+        )
+      );
+      await settle();
+
+      expect(target.querySelector('main form')).not.toBeNull();
+      expect(nameInput().value).toBe('Kept Draft');
+      expect(target.querySelector<HTMLTextAreaElement>('#char-desc')!.value).toBe(
+        'Keep this description'
+      );
+      expect(preview()?.getAttribute('src')).toBe(chosenImage);
+      expect(nameInput().disabled).toBe(false);
+      // The form still holds focus, and no Gallery view opened to receive it.
+      expectFocusOn(formHeading(), 'the form heading');
+      expect(document.activeElement).not.toBe(addButton());
+
+      restore();
     });
   });
 });
