@@ -1,6 +1,6 @@
 <script lang="ts">
 
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
   import type { Character } from '../types';
   import { PAGE_SIZE, filterAndSortCharacters, type SortMode } from '../gallery-utils';
@@ -11,7 +11,7 @@
   const NO_MATCH_MESSAGE = 'No characters match your search.';
   const RESULTS_RESTORED_MESSAGE = 'Search results restored.';
 
-  let { characters, onEdit, onDelete, onDeleteMany, onDownload, notice, onLightboxChange }: {
+  let { characters, onEdit, onDelete, onDeleteMany, onDownload, notice, onLightboxChange, returnFocusCharacterId }: {
     characters: Character[];
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
@@ -24,6 +24,9 @@
     // rather than making the page inspect the DOM.
     notice?: Snippet;
     onLightboxChange?: (open: boolean) => void;
+    // A form that has just closed asks for one return handover: the edited
+    // Character's card, or Search when that Character is not on the page.
+    returnFocusCharacterId?: string;
   } = $props();
 
   // Search and sort state
@@ -59,6 +62,13 @@
   // Incremental loading
   let visibleCount = $state(PAGE_SIZE);
   let sentinelEl = $state<HTMLDivElement | undefined>(undefined);
+
+  // The page sets this when a form closes. It is a one-shot request, so a later
+  // page of results never repeats the handover, and a Gallery that was never
+  // asked does nothing. It is the consumption state of the request, separate
+  // from the `returnFocusCharacterId` prop the page passes: the prop is the
+  // page's request for this mount, this is the copy that has not been spent yet.
+  let pendingReturn: string | null = untrack(() => returnFocusCharacterId ?? null);
 
   // Filter and sort derived
   let filteredCharacters = $derived(
@@ -183,6 +193,31 @@
       .find((input) => input.dataset.characterId === firstId);
     (first ?? cancelButton)?.focus();
   }
+
+  /**
+   * The rendered card for a Character, or undefined when that Character is not
+   * on the page. The card carries its record identity, so this resolves by
+   * identity: document order is not a contract, and a name is not identity,
+   * because two Characters can share one. The page remounts this Gallery in
+   * browse mode, so the card's browse button is the one that opens it.
+   */
+  function renderedCard(characterId: string): HTMLElement | undefined {
+    const cards = grid?.querySelectorAll<HTMLElement>('button[data-character-id]') ?? [];
+    return [...cards].find((card) => card.dataset.characterId === characterId);
+  }
+
+  /**
+   * Take the return handover the page asked for once, after this Gallery has
+   * rendered: the edited Character's card, or Search when it is not on the
+   * page. Consuming the request here is what stops a later page from moving
+   * focus again.
+   */
+  $effect(() => {
+    if (pendingReturn === null) return;
+    const id = pendingReturn;
+    pendingReturn = null;
+    (renderedCard(id) ?? searchInput)?.focus();
+  });
 
   async function handleEnterSelectMode() {
     selectMode = true;

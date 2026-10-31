@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In selection mode each Character exposes its selection through one native
   checkbox, and the card face toggles the same selection with a pointer or touch.
   The number selected is announced as status.
+- Two maintained descriptions now match the implementation. The masonry design
+  guide describes the card's delivered "Image unavailable" fallback and its
+  reserved frame. It no longer files that behavior as follow-on work. The
+  developer wiki's "Change a theme color" recipe names the direct palette
+  utilities that a token change does not reach. It keeps the convention that
+  favors token names.
 - Contributor and agent guidance now share one documentation update contract,
   which the [Documentation Map](docs/WIKI.md#18-documentation-map) states. A
   noteworthy user-facing, setup or toolchain, or maintainer-policy change
@@ -77,6 +83,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Background dimension repair merges the measured pair into the record as it
   stands, so a newer name or description always wins. A repair never revives a
   deleted Character or restores a replaced image.
+- Keyboard focus around the Character form is no longer lost. Opening Add or Edit
+  focuses the form heading, which is a focus destination rather than an extra
+  Tab stop, so the next Tab reaches Name.
+- A save that begins moves focus to the form heading before a control it is about
+  to disable, from Save and from Enter in Name. A rejected submission, including
+  the whitespace-only-name alert, does not, and a rejected save keeps the form,
+  the draft, the image, and the inline alert.
+- Closing the form hands focus back once. Add returns to Add Character. Edit
+  returns to the edited Character's card, matched by identity so Characters that
+  share a name are not confused. When that card is not on the rendered page,
+  Edit returns to the search field instead. A control focused outside the form
+  while a save is pending keeps the focus. When nothing is focused, the handover
+  still runs. A later page of results never moves it again.
+- The Character form's Name, Description, and image controls and its Cancel and
+  Discard replacement buttons use the lighter outlined-control border. Each
+  control's boundary is therefore identifiable against the form panel.
+  Placeholder text is readable at that step. The fields dim while a save is
+  pending, so an inactive field is distinguishable from an editable one.
+- Add Character and Delete Selected do not lift on hover when reduced motion is
+  requested, and their hover transition is off. Their actions, their hover colour
+  changes, and their disabled states are unchanged, and the hover lift is
+  unchanged when reduced motion was not requested.
 
 ## [1.0.0] - 2026-09-22
 

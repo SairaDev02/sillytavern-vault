@@ -38,7 +38,7 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 |---|---|---|
 | `index.html` | Entry page, loads `src/main.ts` | Rarely |
 | `src/main.ts` | `mount(App, { target: '#app' })` | Never |
-| `src/App.svelte` | Page shell: renders the library state and its status, the delete notice, the download notice, and the form or gallery | Page layout, start-up states, notices, Retry focus |
+| `src/App.svelte` | Page shell: renders the library state and its status, the delete notice, the download notice, and the form or gallery | Page layout, start-up states, notices, Retry focus, the form return handover |
 | `src/types.ts` | `Character` interface | Any data-shape question |
 | `src/character-library.svelte.ts` | `CharacterLibrary` class: the canonical list, start-up and Retry, record rules, mutation ordering, delete outcomes, legacy size repair | Any persistence, list, or record-rule change |
 | `src/library-error.ts` | `LibraryError` + `LibraryErrorKind`, no storage imports | Error-kind branching in a component |
@@ -51,12 +51,12 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `src/gallery-utils.ts` | `PAGE_SIZE`, `SortMode`, filter/sort | Search, sort, page size |
 | `src/download.ts` | Data URL parse, PNG conversion, filename, download | Export path |
 | `src/style.css` | Tailwind import + `@theme` color tokens | Colors, theme |
-| `src/components/Gallery.svelte` | View state: search, sort, selection, paging, lightbox state | Any gallery behavior |
+| `src/components/Gallery.svelte` | View state: search, sort, selection, paging, lightbox state, the one-shot return request | Any gallery behavior |
 | `src/components/GalleryToolbar.svelte` | Search input, sort select, select-mode controls | Toolbar UI |
 | `src/components/MasonryGrid.svelte` | CSS columns, keyed list, flip/fade animation | Layout, animation |
 | `src/components/MasonryItem.svelte` | One card: image, hover label, download, checkbox | Card UI |
-| `src/components/Lightbox.svelte` | `<dialog>` detail view, keyboard + button nav | Detail view |
-| `src/components/CharacterForm.svelte` | Add/edit form, text fields, save gating and locking | Form behavior |
+| `src/components/Lightbox.svelte` | `<dialog>` detail view, keyboard + button nav, focus restore with the Edit handover exception | Detail view |
+| `src/components/CharacterForm.svelte` | Add/edit form, text fields, save gating and locking, entry and save-start focus | Form behavior |
 | `tests/*` | Vitest suites + helpers | Any behavior change |
 | `docs/WIKI.md` | Developer wiki | Before changing architecture |
 
@@ -214,7 +214,7 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 | Component | Props (`?` = optional) | Notes |
 |---|---|---|
 | `App` | none | Page shell. Constructs one `CharacterLibrary` and one `DownloadAttempts`, calls `initialize` on mount, disposes the library on destroy. Renders loading, failure with Retry, the ready status, the delete notice, the download notice, the form, and the gallery. No storage knowledge, no record building. |
-| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. |
+| `Gallery` | `characters`, `onEdit(id)`, `onDelete(id)`, `onDeleteMany(ids) => Promise<boolean>`, `onDownload(character)`, `notice?`, `onLightboxChange?(open)`, `returnFocusCharacterId?` | Owns view state and lightbox selection. `onDownload` only reports the Character; the page owns the attempt and the notice. `onLightboxChange` tells the page where to present that notice. `returnFocusCharacterId` is the page's one-shot return request; `pendingReturn` is the Gallery's unspent copy. |
 | `GalleryToolbar` | `searchTerm`, `sortMode`, `onSearchChange`, `onSortChange`, `selectMode?`, `selectedCount?`, `onToggleSelectMode?`, `onDeleteSelected?`, `onCancelSelect?` | Two modes: normal and selection. |
 | `MasonryGrid` | `characters`, `animate?`, `onOpen(id)`, `selectMode?`, `selectedIds?`, `onToggleSelect?(id)`, `onDownload?(character)` | Pure layout + keyed list. No data access. |
 | `MasonryItem` | `character`, `onOpen`, `selectMode?`, `selected?`, `onToggleSelect?`, `onDownload?` | Reserves the frame from `width`/`height` through `image-frame.ts`, falling back to 4:3, and describes a failed image on the browse button or checkbox. |
@@ -258,7 +258,7 @@ MUST hold after any change.
 13. `PAGE_SIZE` lives in `src/gallery-utils.ts`. Do not re-hard-code 24.
 14. `visibleCount` resets to `PAGE_SIZE` on a search or sort change.
 15. `Gallery.sentinelEl` stays `$state`. The `$effect` must read it so the observer attaches to the live element and disconnects from a replaced one. See `tests/gallery-scroll.test.ts`.
-16. `Lightbox` teardown runs from the dialog `close` event, which covers Escape, and from the direct `teardown` call in `requestClose` when the dialog is unavailable or not open. Do not close from a keydown handler or the DOM and the parent state can diverge. See `src/components/Lightbox.svelte`.
+16. `Lightbox` teardown runs from the dialog `close` event, which covers Escape, and from the direct `teardown` call in `requestClose` when the dialog is unavailable or not open. Do not close from a keydown handler or the DOM and the parent state can diverge. See `src/components/Lightbox.svelte`. The Edit action alone skips the focus restore: it sets `handedOver` before closing, because the form now owns focus and a later `close` event must not put focus back on the card.
 17. Every DB write promise rejects on `error` and on `abort`. A pending-forever promise is a bug.
 18. `downloadCharacterImage` always emits PNG and always runs the name through `sanitizeFilename`. The object URL is released ~60 s after the click, not immediately.
 19. Reduced motion (`prefers-reduced-motion`) gates durations and `transform`. It MUST NOT gate the visibility of a control (the hover label and the download button stay reachable).
@@ -266,6 +266,7 @@ MUST hold after any change.
 21. A delete failure is announced in one place in the page shell and keeps the records and the batch selection. A committed batch delete clears the selection and leaves select mode.
 22. No runtime dependencies. `dependencies` must stay absent unless there is an explicit decision to add one.
 23. `npm run check` stays at 0 errors and 0 warnings. Do not delete or weaken a test to make a change pass.
+24. A form's return handover happens once, after the destination renders, and resolves an edited Character by identity rather than by name. The browse card carries that identity as `data-character-id`, and `Gallery` matches the attribute rather than the rendered order. A later page of results never repeats the handover. A control the user focused outside the form while a save was pending keeps the focus, but a page with nothing focused hands over. A rejected save moves no focus to the Gallery. See `src/App.svelte` and `src/components/Gallery.svelte`.
 
 ---
 
@@ -275,16 +276,17 @@ MUST hold after any change.
 |---|---|---|
 | Add/alter a `Character` field | `src/types.ts`, `src/character-library.svelte.ts` (record rules + repair), `src/components/CharacterForm.svelte`; `src/db.ts` only for a store/index change | `tests/character-library.test.ts`, `tests/db.test.ts`, `tests/app.test.ts` |
 | Persistence rules, start-up, delete outcomes, or size repair | `src/character-library.svelte.ts` | `tests/character-library.test.ts`, `tests/app.test.ts` |
-| Page layout, start-up states, or the delete notice | `src/App.svelte` | `tests/app.test.ts` |
+| Page layout, start-up states, the delete notice, or the form return handover | `src/App.svelte`, `src/components/Gallery.svelte` for the card target | `tests/app.test.ts` |
 | Schema or index change | `src/db.ts` (`DB_VERSION`, `onupgradeneeded`) | `tests/db.test.ts` |
 | Search behavior | `src/gallery-utils.ts` | `tests/gallery-utils.test.ts` |
 | Sort behavior or a new mode | `src/gallery-utils.ts` (`SortMode`, `sortCharacters`), `src/components/GalleryToolbar.svelte` (option) | `tests/gallery-utils.test.ts` |
 | Page size / paging | `src/gallery-utils.ts` (`PAGE_SIZE`), `src/components/Gallery.svelte` | `tests/gallery-scroll.test.ts` |
 | Card layout or card hover UI | `src/components/MasonryItem.svelte`, `src/components/MasonryGrid.svelte` | `tests/gallery-scroll.test.ts` |
 | Column layout or animation | `src/components/MasonryGrid.svelte` | — |
-| Lightbox behavior | `src/components/Lightbox.svelte` | `tests/app.test.ts` |
+| Lightbox behavior or its focus restore | `src/components/Lightbox.svelte` | `tests/app.test.ts` |
 | Download or filename | `src/download.ts` | `tests/download.test.ts` |
 | Selected-image preparation or form gating | `src/selected-image.svelte.ts`, `src/components/CharacterForm.svelte` | `tests/selected-image.test.ts`, `tests/character-form.test.ts` |
+| Form focus entry, save-start handover, or return handover | `src/components/CharacterForm.svelte`, `src/App.svelte`, `src/components/Gallery.svelte` | `tests/character-form.test.ts`, `tests/app.test.ts` |
 | Theme color | `src/style.css` (`@theme` tokens) | — |
 | Id format | `src/id.ts` | `tests/id.test.ts` |
 | Storage semantics | `src/db.ts` | `tests/db.test.ts` |
@@ -356,6 +358,9 @@ Pitfalls:
 | `download.ts`: 60 s `setTimeout` before `revokeObjectURL` | An immediate revoke can cancel the download. |
 | `db.ts`: `tx.onabort` rejection | Aborted transactions fire only `abort`; without it the promise never settles. |
 | `MasonryGrid.svelte`: `matchMedia` read once at component creation | The duration is a construction-time constant; the values only drive `animate:flip` / `fade`. |
+| `App.svelte`: `closeForm` keeps the focus only for an element outside the form that holds it | A heading or field in the disappearing form would strand focus, and the body is not a choice. An element outside the form, chosen during a pending save, is the user's decision to keep. |
+| `Gallery.svelte`: `returnFocusCharacterId` is the page's request, `pendingReturn` is its unspent copy | The request must be spent exactly once. A surviving request would repeat the handover on a later page and take focus the user has since moved. |
+| `CharacterForm.svelte`: the heading carries `focus:ring-2` besides the shared outline | A form opened with the pointer does not match `:focus-visible`, so the unlayered outline is absent and the ring is the only indicator. |
 | `tests/setup.ts` shims | jsdom lacks `matchMedia`, WAAPI, and real `<dialog>` methods. The shims are approximations, not test logic. |
 
 ---

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import {
     CharacterLibrary,
     type CharacterDraft,
@@ -42,6 +42,14 @@
   let lightboxOpen = $state(false);
   // The stable landmark that receives focus when Retry removes itself.
   let heading = $state<HTMLHeadingElement | undefined>(undefined);
+  // The persistent page action a finished Add returns to, and the form region
+  // that decides whether the user was still inside the form when it closed.
+  let addCharacterButton = $state<HTMLButtonElement | undefined>(undefined);
+  let formRegion = $state<HTMLDivElement | undefined>(undefined);
+  // A one-shot request for the remounted Gallery: the edited Character's card,
+  // or Search when that Character is not on the page it renders. The Gallery
+  // receives it under this same name, and `pendingReturn` is its unspent copy.
+  let returnFocusCharacterId = $state<string | undefined>(undefined);
   // Empty at creation on purpose. An assistive technology only announces a
   // change to a live region that already existed, so the region is rendered
   // empty and its text arrives after the element is in the document.
@@ -61,8 +69,7 @@
     // A rejection reaches the form, which keeps the draft and shows its message.
     await library.save(draft);
     deleteNotice = null;
-    editingCharacter = null;
-    showForm = false;
+    await closeForm(draft.id);
   }
 
   async function handleDelete(id: string) {
@@ -103,8 +110,51 @@
   }
 
   function cancelForm() {
-    showForm = false;
+    void closeForm();
+  }
+
+  /**
+   * The Character this close returns focus to, by identity. `undefined` means
+   * the form was an Add, whose return target is the persistent Add action. A
+   * draft that carries an identity is an edit of that record; a Cancel has no
+   * draft, so the open edit target supplies it. A name is never the target,
+   * because two Characters can share one.
+   */
+  function closingCharacterId(draftId?: string): string | undefined {
+    return draftId ?? editingCharacter?.id;
+  }
+
+  /**
+   * Whether a control outside the form should keep the focus it has. That is
+   * the user's own choice made while the save was pending. A heading or a field
+   * inside the closing form is not, because it is about to disappear. Neither
+   * is the body: it is what is left when nothing is focused, not a choice.
+   */
+  function outsideControlHoldsFocus(): boolean {
+    const active = document.activeElement;
+    if (active === null || active === document.body) return false;
+    return !(formRegion?.contains(active) ?? false);
+  }
+
+  async function closeForm(draftId?: string) {
+    const characterId = closingCharacterId(draftId);
+    const outsideControlKeepsFocus = outsideControlHoldsFocus();
+
     editingCharacter = null;
+    showForm = false;
+
+    // Only this close may ask for a destination, so a stale request can never
+    // outlive the form that made it. The decision is made once, here: a close
+    // that leaves an outside control alone asks the remounted Gallery for
+    // nothing.
+    returnFocusCharacterId = outsideControlKeepsFocus ? undefined : characterId;
+
+    if (outsideControlKeepsFocus) return;
+    // An edit handover is the Gallery's: only an Add returns here.
+    if (characterId !== undefined) return;
+
+    await tick();
+    addCharacterButton?.focus();
   }
 
   function retry() {
@@ -151,8 +201,9 @@
       </h1>
       <button
         type="button"
+        bind:this={addCharacterButton}
         disabled={library.status !== 'ready'}
-        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-accent-hover hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
         onclick={startAdd}
       >
         + Add Character
@@ -201,13 +252,15 @@
     </p>
 
     {#if showForm}
-      {#key editingCharacter?.id ?? 'new'}
-        <CharacterForm
-          editingCharacter={editingCharacter}
-          onSave={handleSave}
-          onCancel={cancelForm}
-        />
-      {/key}
+      <div bind:this={formRegion}>
+        {#key editingCharacter?.id ?? 'new'}
+          <CharacterForm
+            editingCharacter={editingCharacter}
+            onSave={handleSave}
+            onCancel={cancelForm}
+          />
+        {/key}
+      </div>
     {:else if library.status === 'failed'}
       <div
         role="alert"
@@ -241,6 +294,7 @@
         onDownload={(character) => downloads.start(character)}
         notice={downloads.notice !== null && lightboxOpen ? downloadNotice : undefined}
         onLightboxChange={(open) => (lightboxOpen = open)}
+        returnFocusCharacterId={returnFocusCharacterId}
       />
     {/if}
   </main>

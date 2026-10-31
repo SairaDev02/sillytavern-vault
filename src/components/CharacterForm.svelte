@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import type { Character } from '../types';
   import type { CharacterDraft } from '../character-library.svelte';
   import { LibraryError } from '../library-error';
@@ -22,6 +22,17 @@
   let description = $state(untrack(() => editingCharacter?.description ?? ''));
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+
+  // The form's entry point and its refuge while saving. It is outside the
+  // <form>, so it stays focusable while every control inside is disabled.
+  let headingEl = $state<HTMLHeadingElement | undefined>(undefined);
+  let formEl = $state<HTMLFormElement | undefined>(undefined);
+
+  onMount(() => {
+    // The page mounts a new form for each target, so this is the one entry
+    // announcement for this task. It moves focus after the heading renders.
+    headingEl?.focus();
+  });
 
   // One preparation belongs to this draft. It owns choice ordering, the
   // image/dimension pairing, readiness, discard restoration, and the
@@ -71,6 +82,13 @@
       ...prepared,
     };
 
+    // Every control this submit is about to disable sits inside the form, so a
+    // focused one needs somewhere to go before the render disables it. The
+    // heading is outside the form and is never disabled. A submission that the
+    // validation above rejects returns before this point, so it does not look
+    // like a save that began.
+    if (formEl?.contains(document.activeElement)) headingEl?.focus();
+
     saving = true;
     saveError = null;
     try {
@@ -95,10 +113,25 @@
 </script>
 
 <div class="mx-auto max-w-lg rounded-xl border border-border bg-bg-secondary p-8">
-  <h2 class="mb-6 text-center text-xl font-bold text-accent">
+  <!-- Focused on entry and before a save disables the focused control, so it
+       needs an indicator that does not depend on how the form was opened.
+       tabindex="-1" keeps it out of the Tab order; the next Tab reaches Name. -->
+  <h2
+    bind:this={headingEl}
+    tabindex="-1"
+    class="mb-6 rounded text-center text-xl font-bold text-accent focus:outline-none focus:ring-2 focus:ring-focus-ring"
+  >
     {editingCharacter ? 'Edit Character' : 'Add New Character'}
   </h2>
-  <form onsubmit={handleSubmit}>
+  <form bind:this={formEl} onsubmit={handleSubmit}>
+    <!--
+      The controls take their boundary from border-zinc-500: border-border
+      measures 1.66:1 against the panel, and the field fill differs from that
+      panel by 1.07:1, so the border is the only thing that shows where a field
+      starts. The fields also dim with disabled:opacity-50 while a save is
+      pending, like the buttons, so an inactive field is distinguishable from
+      an editable one.
+    -->
     <div class="mb-4">
       <label for="char-name" class="mb-1 block font-medium">Name *</label>
       <input
@@ -109,7 +142,7 @@
         disabled={saving}
         oninput={handleTextInput}
         placeholder="Character name"
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 placeholder:text-zinc-500 focus:border-accent focus:outline-none disabled:opacity-50"
       />
     </div>
     <div class="mb-4">
@@ -121,7 +154,7 @@
         disabled={saving}
         oninput={handleTextInput}
         placeholder="Brief description..."
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 focus:border-accent focus:outline-none"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 placeholder:text-zinc-500 focus:border-accent focus:outline-none disabled:opacity-50"
       ></textarea>
     </div>
     <div class="mb-4">
@@ -135,7 +168,7 @@
         onchange={handleFileSelect}
         disabled={saving}
         aria-describedby="char-image-help char-image-status"
-        class="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover"
+        class="w-full rounded-lg border border-zinc-500 bg-bg-primary px-3 py-2 text-zinc-200 file:mr-4 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-white hover:file:bg-accent-hover disabled:opacity-50"
       />
       <p id="char-image-help" class="mt-1 text-xs text-zinc-500">
         Downloads are converted to PNG. Large files use more browser storage.
@@ -161,7 +194,7 @@
           type="button"
           onclick={handleDiscard}
           disabled={saving}
-          class="mt-2 rounded-lg border border-border px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+          class="mt-2 rounded-lg border border-zinc-500 px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
         >
           Discard replacement
         </button>
@@ -189,7 +222,7 @@
         type="button"
         onclick={handleCancel}
         disabled={saving}
-        class="rounded-lg border border-border px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+        class="rounded-lg border border-zinc-500 px-4 py-2 text-zinc-300 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
       >
         Cancel
       </button>

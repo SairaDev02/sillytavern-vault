@@ -375,7 +375,7 @@ The module imports `downloadCharacterImage` from `src/download.ts` directly. `te
 
 ### `App.svelte`
 
-Constructs one `CharacterLibrary` and one `DownloadAttempts` for the page lifetime, and disposes the library on destroy. Owns `editingCharacter`, `showForm`, `deleteNotice`, `lightboxOpen`, and the heading that Retry focuses. The library owns the list and the start-up state. The download owner holds the attempts and their notice, which is separate state from `deleteNotice`, so neither notice overwrites the other.
+Constructs one `CharacterLibrary` and one `DownloadAttempts` for the page lifetime, and disposes the library on destroy. It owns `editingCharacter`, `showForm`, `deleteNotice`, `lightboxOpen`, and the heading that Retry focuses. It also owns the Add Character button that a finished Add returns to, and the form region that decides whether focus was still inside the form. The remounted Gallery's one return request is page state as well. The library owns the list and the start-up state. The download owner holds the attempts and their notice, which is separate state from `deleteNotice`, so neither notice overwrites the other.
 
 | Callback | Behavior |
 |---|---|
@@ -384,7 +384,9 @@ Constructs one `CharacterLibrary` and one `DownloadAttempts` for the page lifeti
 | `handleDeleteMany(ids)` | Asks for a confirmation, calls `CharacterLibrary.removeMany`, and returns a boolean. A canceled or failed delete returns false, which keeps the selection. |
 | `retry()` | Moves focus to the page heading, then calls `CharacterLibrary.initialize()` again. It never deletes or replaces stored records. |
 
-The markup shows one of four states: the form, the loading text, the start-up failure with Retry, or the gallery. The Add action is disabled outside the ready state. The delete notice sits above the form and the gallery, so it survives closing the lightbox. The form is inside `{#key editingCharacter?.id ?? 'new'}`. The key makes a new form instance for each target, so the form state can never belong to another character.
+The markup shows one of four states: the form, the loading text, the start-up failure with Retry, or the gallery. The Add action is disabled outside the ready state. The delete notice sits above the form and the gallery, so it survives closing the lightbox. The form is inside `{#key editingCharacter?.id ?? 'new'}`, and that block is wrapped in one `div` whose reference decides whether the form still held focus when it closed. The key makes a new form instance for each target, so the form state can never belong to another character.
+
+Closing the form hands focus back once. `closeForm` keeps the focus only when the active element is an element outside the form region, and the body is not one. That element is the user's own choice made while the save was pending. A heading or a field in the closing form is about to disappear, so focus moves. A page with nothing focused is not a choice either, so focus moves there too. After Add the target is the persistent **+ Add Character** button, focused after a `tick`. After Edit the target is the edited Character's card. It is named by the draft's identity, never by display name, and passed to the remounted Gallery as `returnFocusCharacterId`. The Gallery resolves it and falls back to Search. Both requests are made once: nothing retries when a later page of results appears, and no request survives the close that did not make it.
 
 The start-up state is also exposed as status. One persistent polite live region carries `Loading your character library...`, `Your character library could not be opened.`, or `Your character library is ready.`. It is the page's visible text while loading and visually hidden afterwards, so the transition is available without repeating what the page already shows. The failure alert carries the reason and the sentence that Retry will not delete or replace stored Characters. It does not claim that unread data is still present, because a failed read cannot establish that.
 
@@ -396,15 +398,17 @@ The page shell has no storage knowledge. It does not import `db.ts`, `id.ts`, or
 
 ### `Gallery.svelte`
 
-Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`, `onDownload`, `notice`, `onLightboxChange`.
+Props: `characters`, `onEdit`, `onDelete`, `onDeleteMany`, `onDownload`, `notice`, `onLightboxChange`, `returnFocusCharacterId`.
 
-State: `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`.
+State: `searchTerm`, `sortMode`, `selectedId`, `selectMode`, `selectedIds`, `visibleCount`, `sentinelEl`, `searchStatus`, `pendingReturn`.
 
 Derived: `selectedCharacter`, `filteredCharacters`, `visibleCharacters`, `hasMore`, `emptyState`.
 
 `selectedId` holds the identity of the open Character. `selectedCharacter` looks that id up in `characters` on every change, so a published edit reaches the dialog and a deleted record closes it. Keep the two separate: a stored copy of the Character would not follow a later change.
 
 `onLightboxChange` reports whether a dialog is open, because the page decides where its one download notice is presented. A Gallery that is torn down reports the dialog closed, so the page never keeps a notice it has nowhere to show.
+
+`returnFocusCharacterId` is the page's one-shot return request after an Edit form closes. `pendingReturn` is this Gallery's unspent copy of that request. It takes the id when the Gallery is created, and the effect that consumes it runs once and clears it. A later page of results therefore never repeats the handover. `renderedCard` matches the record's identity, which the browse card carries as `data-character-id`. It does not assume that the rendered order follows `visibleCharacters`, and a name is not identity, because two Characters can share one. When the record is not on the rendered page, the handover goes to the search field instead. That happens, for example, when the edit started from a later page and the remounted Gallery starts at `PAGE_SIZE` again. Nothing expands the page and nothing is persisted.
 
 Behavior:
 
@@ -440,7 +444,7 @@ The reduced-motion preference is read one time at component creation. A change o
 
 Props: `character`, `onOpen`, `selectMode`, `selected`, `onToggleSelect`, `onDownload`.
 
-The card is a `figure` with `break-inside-avoid`, so a column break never splits it. In browse mode, the card button has the Character name as its label. In selection mode, the card is a label for one native checkbox. The image sits in a `span` inside a frame whose `aspect-ratio` comes from `src/image-frame.ts`: the stored `width`/`height` pair supplies it only when both are finite and positive, otherwise the complete 4:3 fallback does, so one stored dimension is never paired with one fallback one.
+The card is a `figure` with `break-inside-avoid`, so a column break never splits it. In browse mode, the card button has the Character name as its label and carries `data-character-id`, which the form return handover matches by identity. In selection mode, the card is a label for one native checkbox. The image sits in a `span` inside a frame whose `aspect-ratio` comes from `src/image-frame.ts`: the stored `width`/`height` pair supplies it only when both are finite and positive, otherwise the complete 4:3 fallback does, so one stored dimension is never paired with one fallback one.
 
 The image uses `loading="lazy"` and `decoding="async"`. The `width` and `height` attributes are set only from a complete stored pair, so the browser reserves the space before the image decodes.
 
@@ -460,16 +464,20 @@ The notice snippet is the page's download notice, which the dialog renders insid
 
 The `close` event calls `teardown`, including after Escape. When `requestClose` finds the dialog unavailable or not open, it calls `teardown` directly instead. `teardown` is idempotent. It restores focus to the element that opened the dialog if that element is still connected, then calls `onClose`. That call clears `selectedId` in `Gallery`, so the derived `selectedCharacter` becomes null. Keep both routes coordinated through this one teardown function.
 
+The Edit action is the one handover that must not restore focus. It sets `handedOver` before closing, and `teardown` then skips the restore entirely, so no later `close` event can put focus back on the card behind the form that just opened. Reopening the dialog clears the flag. Every other close path keeps the restore.
+
 Keys: `ArrowLeft` and `ArrowRight` move through the filtered list. The buttons do the same for touch users. Both are disabled at the ends of the list.
 
 ### `CharacterForm.svelte`
 
 Props: `editingCharacter`, `onSave` (async), `onCancel`.
 
-State: `name`, `description`, `saving`, `saveError`, and one `preparation` (`SelectedImage`).
+State: `name`, `description`, `saving`, `saveError`, `headingEl`, `formEl`, and one `preparation` (`SelectedImage`).
 
 Behavior:
 
+- The heading is the form's focus destination. `onMount` focuses it, so opening Add or Edit says which task opened. It carries `tabindex="-1"`, so it is reachable by script but is not one more Tab stop; the next Tab reaches Name. It sits outside the `<form>`, so it is never one of the controls a save disables. It carries both the shared focus outline and its own `focus:ring-2` in the focus-ring token, because a form opened with the pointer does not match `:focus-visible` and would otherwise show no indicator.
+- When a submission passes validation and the save actually begins, the handler moves focus from any focused control inside the `<form>` to the heading **before** `saving` disables it. Ordinary Save activation and Enter from Name take the same path. A rejected submission — including the whitespace-only-name alert — returns before that point, so it never looks like a save that began.
 - `SelectedImage` reads the chosen file, measures it, and correlates each image with its own dimensions. The form no longer coordinates those facts.
 - The form shows `preparation.image` as the preview. The latest explicit file choice wins, even when an older read or measurement finishes later.
 - Save is disabled while a selection is preparing or after a read failure. The submit handler calls `preparation.snapshot()` and returns without saving when the draft is not ready, so a direct submit cannot bypass the gate.
@@ -487,11 +495,11 @@ Behavior:
 
 **Start-up failure.** A failed open or a failed initial read puts the library in the `failed` state with a message and an empty list. The shell shows the failure with Retry, keeps the Add action disabled, and reports the outcome as polite status. Retry moves focus to the page heading before the Retry control disappears, then calls `initialize` again; stored records are never deleted or replaced, and the completion moves no focus.
 
-**Add.** The user clicks **+ Add Character**. The form mounts with the key `new`. A save sends a draft with no id; the library assigns a new identity and the current time.
+**Add.** The user clicks **+ Add Character**. The form mounts with the key `new` and focuses its heading. A save sends a draft with no id; the library assigns a new identity and the current time. Cancel, or a save that resolves, closes the form and focuses **+ Add Character** once, unless the user moved to a persistent control outside the form while the save was pending.
 
-**Edit.** The lightbox calls `onEdit`. `App.startEdit` sets `editingCharacter` and shows the form. The key is the character id, so the form mounts with the stored values. A save sends the stored id; the library keeps the identity and the `createdAt` value, or refuses the save when the record is gone.
+**Edit.** The lightbox calls `onEdit`. `App.startEdit` sets `editingCharacter` and shows the form, which focuses its heading; the dialog does not restore focus to the card behind it. The key is the character id, so the form mounts with the stored values. A save sends the stored id; the library keeps the identity and the `createdAt` value, or refuses the save when the record is gone. Closing returns focus to that Character's card in the remounted Gallery, resolved by identity. When the record is not on the rendered page, focus goes to the search field instead.
 
-**Save.** The library commits the record first and publishes it second. The form closes only after the save resolves. A rejection keeps the form open with the draft, the image, and an inline message.
+**Save.** The library commits the record first and publishes it second. The form closes only after the save resolves. A rejection keeps the form open with the draft, the image, and an inline message, and never returns focus to the Gallery.
 
 **Delete.** One delete comes from the lightbox, a batch delete from the toolbar. Both ask for a confirmation first in the page shell. The lightbox closes before the confirmation appears. A failed delete sets one page notice, and a failed batch delete also keeps the selection.
 
@@ -516,7 +524,7 @@ Behavior:
 | `--color-accent-hover` | `#c93a55` | Hover state of a primary action. |
 | `--color-danger` | `#f87171` | Form error text, including a failed save. |
 | `--color-warning` | `#fcd34d` | Non-blocking form warnings, such as a failed size measurement. |
-| `--color-border` | `#533483` | Borders and secondary buttons. |
+| `--color-border` | `#533483` | Panel and notice borders, the page header rule, and the notice Dismiss buttons. Also the fill of the lightbox Edit and Download buttons (`bg-border`). The Character form's secondary buttons use `border-zinc-500` instead. |
 | `--color-focus-ring` | `#ffd5dc` | The shared focus indicator. |
 | `--color-selection` | `#ff2056` | The selection checkbox accent. |
 | `--color-zinc-500` | `#8f8f99` | Tailwind step for muted text, placeholders, and outlined control borders. |
@@ -546,6 +554,11 @@ The shared focus outline in `src/style.css` is unlayered so it overrides the exi
 - On a card, the failure is an accessible description of the existing browse button or selection checkbox through `aria-describedby`. The Character name and the native checked state stay unchanged, and a card failure is not announced globally, so a Gallery with many failures does not read out one message per card.
 - In the lightbox, the displayed image failure is polite status. It does not move focus and does not change the dialog.
 - Loading, failure, and readiness are exposed as polite status. Activating Retry moves focus to the page heading, and the asynchronous completion moves no focus.
+- Opening Add or Edit moves focus to the form heading, whose label says which task opened. The heading is not an extra Tab stop, and the next Tab reaches Name. Its indicator is the shared outline plus a ring on the focus-ring token, so it is visible after a pointer-opened form as well as a keyboard one.
+- A save that begins moves focus off a form control that is about to be disabled, before it is disabled, from both Save and Enter in Name. A rejected submission, including the whitespace-only-name alert, does not.
+- A rejected save keeps the form, the draft, the image, and the inline alert, re-enables the controls, and moves no focus to the Gallery.
+- Closing the form moves focus once. After an Add the target is **+ Add Character**. After an Edit it is the edited Character's card, resolved by identity, so two Characters with one name are not confused. When that card is not on the rendered page, the target is the search field. A persistent control the user focused while the save was pending keeps the focus. A later page of results never moves it again.
+- The lightbox does not restore focus to the card when Edit hands the task to the form, whatever order the `close` event arrives in. Every other close path still restores it.
 - A detected download failure is polite status in the visible context, inside the open dialog or in page content. It is rendered once, never moves focus, and never reopens a dialog.
 - The reduced-motion preference stops the animation, not the function.
 - The shared focus outline makes focused controls identifiable. Selection cards have an additional two-tone focus indicator over artwork.
@@ -568,11 +581,11 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-card-image.test.ts` | The mounted card: the reserved frame from usable and unusable pairs, the failure fallback and its description, the preserved actions, and source replacement. |
 | `tests/lightbox-image.test.ts` | The mounted dialog: the reserved frame, polite status, the failure following the displayed Character and source, and late events from a replaced source. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
-| `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. |
+| `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. Also the form focus lifecycle: entry focus for both origins, the lightbox close-timing handover, save-start, validation and rejected-save outcomes, and the one-time return handover for Add and for an Edit target that is rendered, duplicated by name, or not rendered at all. The handover resolves the card by its identity attribute, and it also runs when nothing is focused. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
 | `tests/selected-image.test.ts` | Preparation ordering, readiness, failures, discard, same-file reselection, and disposal. |
 | `tests/download-attempts.test.ts` | Download ordering and the notice through the owner's public interface: detected failure versus handoff, the captured Character, dismissal, and cross-Character independence. The helper is mocked, so each attempt settles when the test says. |
-| `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, and accessible feedback. |
+| `tests/character-form.test.ts` | Mounted form wiring: preview, save gating, recovery, save locking, a refused edit target, accessible feedback, entry focus on the heading, and the save-start handover for Save activation and Enter from Name. |
 | `tests/ci-gate.test.mjs` | The gate's fail-closed rules for a failed, skipped, cancelled, neutral, timed-out, or missing job, for a failed step inside a `success` job, and for a declared step that is missing, duplicated, or not `success`; the pull-request decision; and the tie between `ci.yml`, `required-contexts.json`, and the ruleset payload. |
 
 Helpers:
@@ -625,10 +638,12 @@ Notes:
 - A real browser in the automated suite. The jsdom stand-ins approximate the dialog, the animations, and `matchMedia`.
 - Rendered color contrast and the visibility of the focus indicator. jsdom paints nothing, so measure the built page in a desktop Chrome or Edge session. See sections 11 and 12.
 - Native keyboard behavior, such as the Tab order and Space on a checkbox, and any screen-reader announcement. A DOM assertion about focus or markup is not evidence of either.
+- Rendered hover motion, including the two reduced-motion lifts on Add Character and Delete Selected. jsdom never applies `@media (prefers-reduced-motion: reduce)`, and the compiled Tailwind utilities sit in `@layer utilities`, which jsdom drops. A class-name assertion therefore cannot show whether a control moves. Rendered hover motion is browser-only evidence: the browser check covers the two lifted actions, and `npm test` does not.
 - The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
 - The canvas path of `downloadCharacterImage`, because jsdom has no canvas.
 - The performance of the gallery with a large library.
 - The missing-target message on the mounted page. The page cannot delete a record behind its own open form, and multi-tab changes are out of scope, so the message is witnessed at the form seam instead. The page's passthrough of a real rejection is witnessed by the write-failure test.
+- The lightbox's Edit handover cannot be isolated in the jsdom suite, because the destination tears the Gallery down and the opener is disconnected anyway. The mounted page test observes the outcome — the heading keeps focus across the close event — and the real-browser check covers the same flow.
 
 ### Browser smoke check for selected-image preparation
 
@@ -673,6 +688,23 @@ A manual check ran in headless Chrome 156.0.8078.49 on Windows 11 against the pr
 
 This is a manual smoke check, not part of `npm test`. It does not prove the following. Android, Firefox, and Safari were not checked. No screen reader was run, so the announcements, their timing, and their usability are unverified. The browser emitted a download event, but nothing here shows that the browser or the operating system wrote the file, and no save completion is claimed. The injected faults exercise the recovery paths in a real browser; they are not a real storage or network failure. These numbers are not a claim of application-wide WCAG conformance. Re-run the check when the empty states, the image frame, or the download notice changes.
 
+### Browser smoke check for the form focus lifecycle
+
+A manual check ran on the merged delivery tree of the spec #65 work. The tree was at revision `e766b8d` on branch `review/65-fixes`. The browser was headed desktop Chrome 156.0.8078.49 on Windows 10 x64. It was driven through `playwright-cli` at 1280 by 720 with a device pixel ratio of 1. The app was served from the worktree's Vite 6.4.5 dev server on port 5591, with its dependency cache outside the repository. Records were seeded through the page's own IndexedDB API, and the page was reloaded. New Characters were created through the real form with a real PNG, so the real `FileReader` and image decoding ran. The one injected fault was a throwing `IDBObjectStore.put` in the page, which is a test double. The check confirmed:
+
+- Tab reached **+ Add Character** and Enter opened the form with focus on the `tabindex="-1"` heading "Add New Character". One Tab reached Name, and the heading was not among the keyboard stops. The visible indicator was the shared outline `2px solid rgb(255, 213, 220)` plus the heading ring on the same colour.
+- Opening Edit from the lightbox focused "Edit Character". It stayed there immediately, after the dialog's asynchronous `close` event, and after a later task, with the dialog gone. One Tab reached Name, which held the stored name.
+- A `MutationObserver` on Name recorded the active element when the control gained `disabled`. It was the heading, for both Enter in Name and a Save click.
+- A whitespace-only name raised the native "Name is required" alert. Afterwards the form was still open, focus was still in Name, the value was kept, nothing was disabled, and no record was stored.
+- A thrown storage write kept the form with its name, description, prepared image, and inline alert. Every control was re-enabled, focus stayed on the heading, and **+ Add Character** was not focused. Restoring the real write saved the same draft and focused **+ Add Character**.
+- Cancel and a successful save returned focus to **+ Add Character** from Add, and to the edited Character's card from Edit. With two Characters named "Twin", cancelling the older one's edit focused the card whose `data-character-id` is that record. A save that renamed it focused the same card, while the other "Twin" was untouched.
+- A Character edited from the second page of a 30-record library returned to a Gallery reset. It showed 24 cards, and focus was on the search field. A later page grew the list to 30, and focus stayed on the search field.
+- A persistent control focused outside the form while a save was pending kept the focus. The Gallery return did not override it.
+- A pointer-opened form focused the heading too, but `:focus-visible` did not match. The shared outline was therefore absent. The heading's own ring was the visible indicator: `rgb(255, 213, 220)` against the form panel's `rgb(22, 33, 62)`, 11.96:1.
+- Hovering a disabled **+ Add Character** (library not ready) moved nothing, and so did a disabled **Delete Selected** (nothing selected). Both held still with normal motion and with reduced motion active. The same probe showed both controls lifting 2 px when enabled and normal motion allowed.
+
+This is a manual smoke check, not part of `npm test`. Chrome freezes CSS transitions while its window is not visible. The hover samples were therefore taken after the window was brought to the front, with `document.visibilityState` `visible`. An earlier frozen-transition reading is not reported. Android Chrome, Firefox, Safari, physical touch, and any screen reader were not checked, so announcements, their timing, and their usability are unverified. The disabled-focus handover is observed as the order of the DOM change, not as the browser's own blur behaviour. The injected write failure exercises the recovery path in a real browser; it is not a real storage abort. Re-run the check when the form, the Gallery focus targets, or the lightbox close path changes. These results are not an application-wide accessibility audit or a WCAG conformance claim. The full record, with the exact revision, is kept with the pull request's review evidence.
+
 ## 14. Verification and Build
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
@@ -706,7 +738,11 @@ Change `PAGE_SIZE` in `src/gallery-utils.ts`. `Gallery` and the tests use the co
 
 ### Change a theme color
 
-Change the token in `src/style.css`. The components use the token names, so no component change is necessary.
+Change the token in `src/style.css`, then check the components that use the color. Section 11 states the convention: a component color is written as a token utility (`bg-accent`, `text-accent`, `border-border`, `file:bg-accent`). Most of them are, so a token change reaches those uses with no component edit.
+
+Not every component color follows a token. Components also write direct palette utilities: `text-zinc-300`, `text-zinc-200`, `text-zinc-400`, `bg-zinc-800`, `bg-purple-700`, and on Delete Selected `bg-red-600` with `hover:bg-red-700`. Those follow Tailwind's palette, so a token change does not reach them. The lightbox Download and Edit buttons show both kinds in one class list, `bg-border` at rest and `bg-purple-700` on hover. A new `--color-border` would change the rest color and leave the hover color as it was. `text-zinc-500`, `placeholder:text-zinc-500`, and `border-zinc-500` do follow `src/style.css`, because `--color-zinc-500` retunes that palette step there.
+
+Grep `src/` for the palette step as well as for the token before you conclude that the change is complete. Prefer a token name over a palette step when you add or change a color.
 
 ### Add a component test
 
@@ -726,6 +762,7 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 | Repair attempts are keyed by identity and image generation | The attempt must survive an ordinary publication, be repeated for a replaced image, and start fresh on a new page lifetime. Keying by the image data itself would treat two identical images as one. |
 | Retry reuses `initialize` | A failed open and a failed read both land in the same recovery path, so there is no second start-up code path to keep aligned. |
 | `untrack` in the form | The form snapshots the prop on purpose. `App` keys the form by target, so the snapshot is always correct. |
+| Return handover targets the record, not the name | Two Characters can share a name, so an Edit that returns to a card must resolve the record. The browse card carries its record identity as `data-character-id`, and `Gallery` matches that attribute instead of an unenforced document order. The request is consumed once, which is what stops a later page of results from moving focus again. |
 | 60-second object URL lifetime | The browser reads the blob after the click returns. An immediate release can cancel a download. |
 | Rejection on `abort` in `db.ts` | An aborted transaction fires only `abort`. Without a handler, the promise never settles. |
 | Empty state in `Gallery`, not `MasonryGrid` | `MasonryGrid` receives only the rendered page, so it cannot tell an empty library from a search that matched nothing. Both empty messages belong to `Gallery`, which reads the canonical list. |
@@ -745,6 +782,7 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 - Same-page ordering only. The library does not synchronize with another tab that writes the same database.
 - The repository has no linter and no formatter. Continuous integration runs `npm run check`, `npm test`, and `npm run build` on six Node and npm combinations. Run the same commands by hand before you push.
 - `--color-bg-card` is declared but unused.
+- The Edit return handover can only reach a card that is on the rendered page. A Character edited from a later page is not on the first page after the Gallery resets, so focus goes to the search field instead, and nothing expands the page to find it.
 
 ## 18. Documentation Map
 

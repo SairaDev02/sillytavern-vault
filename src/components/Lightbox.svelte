@@ -33,6 +33,10 @@
   let dialogEl = $state<HTMLDialogElement | undefined>(undefined);
   let triggerButton: HTMLElement | null = null;
   let toreDown = false;
+  // Set when the page takes over with the Character form. Focus belongs to the
+  // form then, so this dialog must not restore it to the card behind it, no
+  // matter when the `close` event arrives.
+  let handedOver = false;
 
   // A display failure belongs to the image it happened on: the Character shown
   // and the source string itself. Recording both means navigating to another
@@ -99,7 +103,7 @@
     if (toreDown) return;
     toreDown = true;
 
-    const trigger = triggerButton;
+    const trigger = handedOver ? null : triggerButton;
     triggerButton = null;
     if (trigger?.isConnected) {
       trigger.focus();
@@ -139,6 +143,7 @@
   function handleEdit() {
     const id = character?.id;
     if (!id) return;
+    handedOver = true;
     requestClose();
     onEdit(id);
   }
@@ -154,6 +159,7 @@
   $effect(() => {
     if (character && dialogEl && !dialogEl.open) {
       toreDown = false;
+      handedOver = false;
       triggerButton = document.activeElement as HTMLElement | null;
       dialogEl.showModal();
     }
