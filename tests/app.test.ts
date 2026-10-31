@@ -85,6 +85,97 @@ async function breakStoreMethod(method: 'put' | 'delete'): Promise<() => void> {
 }
 
 /**
+ * Cleanups still owed by held commits. A test that fails before releasing its
+ * own hold must neither leave the transaction factory patched nor strand the
+ * library's pending chain and its connection past the unmount.
+ */
+const commitHoldCleanups: Array<() => void> = [];
+
+/**
+ * Commit a write, then hold the completion the library waits for. The page goes
+ * on seeing that save as pending, which is how a slow commit reaches it. The
+ * hold stays in force for every completion the test has not released, so a
+ * queued save can be held as well.
+ */
+async function holdCommits(): Promise<{
+  nextHeld: () => Promise<void>;
+  releaseHeld: () => void;
+  release: () => void;
+  restore: () => void;
+}> {
+  const db = await openDB(DB_NAME);
+  const proto = Object.getPrototypeOf(db) as unknown as Record<string, unknown>;
+  const original = proto.transaction as (...args: unknown[]) => IDBTransaction;
+  const held: Array<(event: Event) => void> = [];
+  const waiters: Array<() => void> = [];
+  let capturedCount = 0;
+  let awaitedCount = 0;
+  let released = false;
+  let restored = false;
+
+  function capture(handler: (event: Event) => void) {
+    held.push(handler);
+    capturedCount += 1;
+    waiters.shift()?.();
+  }
+
+  function releaseHeld() {
+    for (const deliver of held.splice(0)) deliver(new Event('complete'));
+  }
+
+  proto.transaction = function holding(this: IDBDatabase, ...args: unknown[]) {
+    const tx = original.apply(this, args);
+    // `awaitTransaction` installs the handler it wants run on commit. Hiding it
+    // until the test releases the commit keeps the caller's promise pending.
+    let installed: ((event: Event) => void) | null = null;
+    Object.defineProperty(tx, 'oncomplete', {
+      configurable: true,
+      get() {
+        if (installed === null) return null;
+        if (released) return installed;
+        const handler = installed;
+        installed = null;
+        capture(handler);
+        return null;
+      },
+      set(handler: ((event: Event) => void) | null) {
+        installed = handler;
+      },
+    });
+    return tx;
+  };
+
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    proto.transaction = original;
+    db.close();
+  };
+  commitHoldCleanups.push(() => {
+    released = true;
+    releaseHeld();
+    restore();
+  });
+
+  return {
+    /** Resolves once another commit is held, so the page still sees it pending. */
+    nextHeld() {
+      awaitedCount += 1;
+      if (capturedCount >= awaitedCount) return Promise.resolve();
+      return new Promise<void>((resolve) => waiters.push(resolve));
+    },
+    /** Deliver the commits held so far, and keep holding later ones. */
+    releaseHeld,
+    /** Deliver the commits held so far and every later one. */
+    release() {
+      released = true;
+      releaseHeld();
+    },
+    restore,
+  };
+}
+
+/**
  * Hold the next library open until the test releases it, so a Retry can be
  * observed while it is still pending. `release` hands a real database to the
  * waiting open and restores the real factory.
@@ -180,6 +271,7 @@ describe('App', () => {
   afterEach(() => {
     if (app) unmount(app);
     target.remove();
+    for (const cleanup of commitHoldCleanups.splice(0)) cleanup();
     vi.unstubAllGlobals();
   });
 
@@ -1946,6 +2038,148 @@ describe('App', () => {
       expect(document.activeElement).not.toBe(addButton());
 
       restore();
+    });
+
+    describe('save ownership', () => {
+      const submitButton = () =>
+        target.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+
+      it('leaves a newer Add form and its draft alone when an earlier save completes', async () => {
+        await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+        start();
+        await waitFor(() => expect(figures()).toHaveLength(1));
+        await openEditForm('Description 1');
+
+        // Start the Edit save and hold its completion, so the page still sees
+        // that save as pending after the record is committed.
+        const commit = await holdCommits();
+        setName('Edited');
+        activate(submitButton());
+        await commit.nextHeld();
+
+        // While the Edit is pending, the user starts a different task: a new
+        // Add form, with a draft of its own.
+        activate(addButton());
+        await settle();
+        setName('Unsaved Replacement Draft');
+        nameInput().focus();
+
+        commit.release();
+        // Give the released completion every microtask it needs to run through
+        // the library's commit-and-publish chain before observing the page.
+        await settle();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await settle();
+
+        // The earlier completion must not close the form the user is in now,
+        // nor take the focus out of it.
+        expect(target.querySelector('main form')).not.toBeNull();
+        expect(formHeading().textContent?.trim()).toBe('Add New Character');
+        expect(nameInput().value).toBe('Unsaved Replacement Draft');
+        expectFocusOn(nameInput(), 'the Name field of the replacement Add form');
+
+        // The original Edit still committed and published: closing the newer
+        // task shows its saved name.
+        activate(buttonWithText('Cancel')!);
+        await settle();
+        await waitFor(() => expect(target.textContent).toContain('Edited'));
+        expect((await readDatabase()).find((record) => record.id === 'char-1')?.name).toBe(
+          'Edited'
+        );
+
+        commit.restore();
+      });
+
+      it('still returns to Add Character when Add is clicked during its own pending save', async () => {
+        await seedDatabase([]);
+
+        start();
+        await openAddForm();
+        setName('Pending Add');
+        await chooseImage();
+
+        const commit = await holdCommits();
+        submitForm();
+        await commit.nextHeld();
+
+        // Add already owns the form slot, so the click keeps this task: the same
+        // form, the same draft, the same session.
+        activate(addButton());
+        await settle();
+        expect(target.querySelector('main form')).not.toBeNull();
+        expect(nameInput().value).toBe('Pending Add');
+
+        // The user goes back into the pending form; its controls are disabled,
+        // so the heading is the focusable place inside it.
+        formHeading().focus();
+
+        commit.release();
+        await settle();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await settle();
+
+        // That save belongs to this form, so its completion still returns focus
+        // to the persistent Add action.
+        await waitFor(() => expect(figures()).toHaveLength(1));
+        await settle();
+        expect(target.querySelector('main form')).toBeNull();
+        expectFocusOn(addButton(), 'the Add Character button');
+
+        commit.restore();
+      });
+
+      it('closes the replacement form only when its own queued save commits', async () => {
+        await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+        start();
+        await waitFor(() => expect(figures()).toHaveLength(1));
+        await openEditForm('Description 1');
+
+        const commit = await holdCommits();
+        setName('Edited');
+        activate(submitButton());
+        await commit.nextHeld();
+
+        // A second task starts while the Edit is pending, and its save queues
+        // behind the Edit's commit. Both commits are held at the storage
+        // boundary, so the ordering here is the test's, not the event loop's.
+        activate(addButton());
+        await settle();
+        setName('Second Task');
+        await chooseImage();
+        submitForm();
+        await settle();
+        // The save-start handover leaves focus on the form heading, inside the
+        // form that the earlier completion must not touch.
+        expectFocusOn(formHeading(), 'the pending Add form heading');
+
+        // Deliver only the Edit completion. Its record publishes, and its close
+        // must leave the newer session alone while that session's own save is
+        // still pending.
+        commit.releaseHeld();
+        // The second completion cannot be held until the first has propagated
+        // through the serialized chain. Keep it held while checking the form.
+        await commit.nextHeld();
+        await settle();
+
+        expect(target.querySelector('main form')).not.toBeNull();
+        expect(nameInput().value).toBe('Second Task');
+        expectFocusOn(formHeading(), 'the pending Add form heading');
+
+        // The queued save then commits and closes its own form once.
+        commit.releaseHeld();
+        await waitFor(() => expect(figures()).toHaveLength(2));
+        await settle();
+        expect(target.querySelector('main form')).toBeNull();
+        expectFocusOn(addButton(), 'the Add Character button');
+
+        const names = (await readDatabase()).map((record) => record.name);
+        expect(names).toContain('Edited');
+        expect(names).toContain('Second Task');
+
+        commit.restore();
+      });
     });
   });
 });
