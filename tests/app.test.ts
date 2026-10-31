@@ -1629,7 +1629,7 @@ describe('App', () => {
     }
 
     /** The observer currently watching a rendered sentinel. */
-    function activeObserver(): MockIntersectionObserver | undefined {
+    function pagingObserver(): MockIntersectionObserver | undefined {
       return MockIntersectionObserver.instances.find((observer) =>
         [...observer.elements].some((element) => element.isConnected)
       );
@@ -1809,7 +1809,8 @@ describe('App', () => {
       expectFocusOn(cardFor('kept detail'), "the edited Character's card");
     });
 
-    it('falls back to Search when the edited Character is not on the rendered page', async () => {      const records = makeCharacters(PAGE_SIZE + 6).map((character) =>
+    it('falls back to Search when the edited Character is not on the rendered page', async () => {
+      const records = makeCharacters(PAGE_SIZE + 6).map((character) =>
         character.id === 'char-1' ? { ...character, description: 'the oldest record' } : character
       );
       await seedDatabase(records);
@@ -1818,7 +1819,7 @@ describe('App', () => {
       await waitFor(() => expect(figures()).toHaveLength(PAGE_SIZE));
 
       // The oldest Character is only rendered once a second page arrives.
-      activeObserver()!.reveal();
+      pagingObserver()!.reveal();
       await settle();
       await waitFor(() => expect(figures()).toHaveLength(PAGE_SIZE + 6));
 
@@ -1832,7 +1833,7 @@ describe('App', () => {
       expectFocusOn(searchInput(), 'the Search field');
 
       // A later page must not retry the completed handover.
-      activeObserver()!.reveal();
+      pagingObserver()!.reveal();
       await settle();
       expect(figures()).toHaveLength(PAGE_SIZE + 6);
       expectFocusOn(searchInput(), 'the Search field');
