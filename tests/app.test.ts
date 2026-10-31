@@ -1768,6 +1768,28 @@ describe('App', () => {
       expectFocusOn(cardFor('the older twin'), "the edited Character's card");
     });
 
+    it('resolves the return target by the card identity, not by rendered order', async () => {
+      await seedDatabase([
+        makeCharacter(1, { name: 'Twin', description: 'the older twin' }),
+        makeCharacter(2, { name: 'Twin', description: 'the newer twin' }),
+      ]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(2));
+
+      // The browse card carries the record identity, so the handover reads
+      // identity instead of assuming that document order matches the list.
+      expect(cardFor('the older twin').getAttribute('data-character-id')).toBe('char-1');
+
+      await openEditForm('the older twin');
+
+      activate(buttonWithText('Cancel')!);
+      await settle();
+
+      expect(document.activeElement?.getAttribute('data-character-id')).toBe('char-1');
+      expectFocusOn(cardFor('the older twin'), "the edited Character's card");
+    });
+
     it("returns focus to the edited Character's card after a rename", async () => {
       await seedDatabase([
         makeCharacter(1, { name: 'Original', description: 'kept detail' }),
@@ -1814,6 +1836,27 @@ describe('App', () => {
       await settle();
       expect(figures()).toHaveLength(PAGE_SIZE + 6);
       expectFocusOn(searchInput(), 'the Search field');
+    });
+
+    it('returns focus when nothing is focused while the save completes', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+      setName('Nowhere');
+      await chooseImage();
+
+      submitForm();
+      // The save-start handover already moved focus to the heading. Clearing it
+      // leaves the page with no focused control, which is not a choice to keep.
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement).toBe(document.body);
+
+      await waitFor(() => expect(figures()).toHaveLength(1));
+      await settle();
+
+      expect(target.querySelector('main form')).toBeNull();
+      expectFocusOn(addButton(), 'the Add Character button');
     });
 
     it('leaves a persistent control chosen during a pending edit in place', async () => {
