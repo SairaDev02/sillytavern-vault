@@ -118,6 +118,48 @@ async function settle() {
   flushSync();
 }
 
+/**
+ * Minimal IntersectionObserver double, so a test can add another page of
+ * results the way a browser does when the sentinel scrolls into view.
+ */
+class MockIntersectionObserver {
+  static instances: MockIntersectionObserver[] = [];
+
+  readonly elements = new Set<Element>();
+  private readonly callback: IntersectionObserverCallback;
+
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+    MockIntersectionObserver.instances.push(this);
+  }
+
+  observe(target: Element) {
+    this.elements.add(target);
+  }
+
+  unobserve(target: Element) {
+    this.elements.delete(target);
+  }
+
+  disconnect() {
+    this.elements.clear();
+  }
+
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+
+  /** Report the watched sentinel as visible, as a scroll into view would. */
+  reveal() {
+    const target = [...this.elements][0];
+    if (!target) throw new Error('Observer is not watching any element');
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+}
+
 describe('App', () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | undefined;
@@ -126,6 +168,8 @@ describe('App', () => {
     vi.stubGlobal('Image', FakeImage);
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.stubGlobal('alert', vi.fn());
+    MockIntersectionObserver.instances = [];
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     downloadImage.mockReset();
     downloadImage.mockResolvedValue(undefined);
     target = document.createElement('div');
@@ -1556,5 +1600,145 @@ describe('App', () => {
     expect(
       liveRegions().some((element) => /Could not delete the Character/.test(element.textContent ?? ''))
     ).toBe(true);
+  });
+
+  describe('form focus lifecycle', () => {
+    const headingIn = (root: ParentNode) =>
+      [...root.querySelectorAll<HTMLHeadingElement>('h2')].find((heading) =>
+        /^(Add New Character|Edit Character)$/.test(heading.textContent?.trim() ?? '')
+      );
+    const formHeading = () => headingIn(target.querySelector('main')!)!;
+    const nameInput = () => target.querySelector<HTMLInputElement>('#char-name')!;
+    const searchInput = () => target.querySelector<HTMLInputElement>('input[type="search"]')!;
+    const addButton = () => buttonWithText('+ Add Character')!;
+
+    /** A card, found by a detail that belongs to one record rather than its name. */
+    function cardFor(description: string): HTMLButtonElement {
+      const figure = [...target.querySelectorAll('figure')].find((candidate) =>
+        candidate.querySelector('figcaption')?.textContent?.includes(description)
+      );
+      if (!figure) throw new Error(`No card rendered for "${description}"`);
+      return figure.querySelector('button')!;
+    }
+
+    /** Activate a control the way a keyboard user does: focus it, then press it. */
+    function activate(control: HTMLElement) {
+      control.focus();
+      control.click();
+    }
+
+    async function openAddForm() {
+      await waitForReady();
+      activate(addButton());
+      await settle();
+    }
+
+    async function openEditForm(description: string) {
+      await waitFor(() => expect(cardFor(description)).toBeDefined());
+      cardFor(description).focus();
+      cardFor(description).click();
+      await settle();
+      await waitFor(() => expect(dialog()?.open).toBe(true));
+      activate(buttonWithText('Edit')!);
+      await settle();
+      await waitFor(() => expect(nameInput()).not.toBeNull());
+    }
+
+    it('focuses the Add form heading on open, and the next Tab reaches Name', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+
+      const heading = formHeading();
+      expect(heading.textContent?.trim()).toBe('Add New Character');
+      expectFocusOn(heading, 'the Add form heading');
+
+      // A focus destination, not one more ordinary Tab stop in the page.
+      expect(heading.getAttribute('tabindex')).toBe('-1');
+      expect(keyboardStops(target.querySelector('main')!)).not.toContain(heading);
+      expect(keyboardStops(target.querySelector('main')!)[0]).toBe(nameInput());
+      // The page keeps its own single header stop.
+      expect(keyboardStops(target.querySelector('header')!)).toEqual([addButton()]);
+    });
+
+    it('keeps the Edit form heading focused after the lightbox close event', async () => {
+      await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+      start();
+      await openEditForm('Description 1');
+
+      const heading = formHeading();
+      expect(heading.textContent?.trim()).toBe('Edit Character');
+      expectFocusOn(heading, 'the Edit form heading');
+      expect(dialog()).toBeNull();
+
+      // A delayed close handler must not put focus back on the card behind it.
+      await settle();
+      await Promise.resolve();
+      await settle();
+      expectFocusOn(heading, 'the Edit form heading');
+      expect(keyboardStops(target.querySelector('main')!)[0]).toBe(nameInput());
+    });
+
+    it('returns focus to Add Character when the Add form is cancelled', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+
+      activate(buttonWithText('Cancel')!);
+      await settle();
+
+      expect(target.querySelector('main form')).toBeNull();
+      expect(figures()).toHaveLength(0);
+      expectFocusOn(addButton(), 'the Add Character button');
+    });
+
+    it('returns focus to Add Character after a successful Add save', async () => {
+      await seedDatabase([]);
+
+      start();
+      await openAddForm();
+      setName('Newcomer');
+      await chooseImage();
+
+      activate(target.querySelector<HTMLButtonElement>('form button[type="submit"]')!);
+      await waitFor(() => expect(figures()).toHaveLength(1));
+      await settle();
+
+      expect(target.querySelector('main form')).toBeNull();
+      expectFocusOn(addButton(), 'the Add Character button');
+    });
+
+    it('leaves a persistent control chosen during a pending save in place', async () => {
+      await seedDatabase([makeCharacter(1, { name: 'Aria' })]);
+
+      start();
+      await waitFor(() => expect(figures()).toHaveLength(1));
+
+      // A download failure that lands before the form opens stays in page
+      // content, so it is a persistent control outside the form to keep.
+      const pending = beginDownload();
+      cardDownload('Aria').click();
+      pending.reject(new Error('invalid data URL'));
+      await waitFor(() => expect(downloadNotice()).toBeDefined());
+
+      await openAddForm();
+      setName('Pending');
+      await chooseImage();
+
+      submitForm();
+      const dismiss = dismissControl(downloadNotice()!);
+      dismiss.focus();
+
+      // The new Character is published while focus is outside the form.
+      await waitFor(() => expect(figures()).toHaveLength(2));
+      await settle();
+
+      // The save finished while the user was elsewhere; it must not pull focus back.
+      expect(target.querySelector('main form')).toBeNull();
+      expectFocusOn(dismiss, 'the notice Dismiss control');
+    });
   });
 });

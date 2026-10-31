@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import {
     CharacterLibrary,
     type CharacterDraft,
@@ -42,6 +42,10 @@
   let lightboxOpen = $state(false);
   // The stable landmark that receives focus when Retry removes itself.
   let heading = $state<HTMLHeadingElement | undefined>(undefined);
+  // The persistent page action a finished Add returns to, and the form region
+  // that decides whether the user was still inside the form when it closed.
+  let addCharacterButton = $state<HTMLButtonElement | undefined>(undefined);
+  let formRegion = $state<HTMLDivElement | undefined>(undefined);
   // Empty at creation on purpose. An assistive technology only announces a
   // change to a live region that already existed, so the region is rendered
   // empty and its text arrives after the element is in the document.
@@ -61,8 +65,9 @@
     // A rejection reaches the form, which keeps the draft and shows its message.
     await library.save(draft);
     deleteNotice = null;
-    editingCharacter = null;
-    showForm = false;
+    await closeForm(
+      draft.id === undefined ? { kind: 'add' } : { kind: 'character', id: draft.id }
+    );
   }
 
   async function handleDelete(id: string) {
@@ -103,8 +108,33 @@
   }
 
   function cancelForm() {
-    showForm = false;
+    const target = editingCharacter
+      ? { kind: 'character' as const, id: editingCharacter.id }
+      : { kind: 'add' as const };
+    void closeForm(target);
+  }
+
+  /**
+   * Where focus goes when the form closes: the persistent Add action, or the
+   * edited Character's card in the remounted Gallery. The card is named by
+   * identity, because two Characters can share a name.
+   */
+  type ReturnTarget = { kind: 'add' } | { kind: 'character'; id: string };
+
+  async function closeForm(target: ReturnTarget) {
+    // A heading or a field inside the form is about to disappear, so focus has
+    // to move. A persistent control outside it is the user's own choice made
+    // while the save was pending, so that choice stands.
+    const formHeldFocus = formRegion?.contains(document.activeElement) ?? false;
+
     editingCharacter = null;
+    showForm = false;
+
+    if (!formHeldFocus) return;
+    if (target.kind === 'add') {
+      await tick();
+      addCharacterButton?.focus();
+    }
   }
 
   function retry() {
@@ -151,6 +181,7 @@
       </h1>
       <button
         type="button"
+        bind:this={addCharacterButton}
         disabled={library.status !== 'ready'}
         class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-transform hover:bg-accent-hover hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-accent"
         onclick={startAdd}
@@ -201,13 +232,15 @@
     </p>
 
     {#if showForm}
-      {#key editingCharacter?.id ?? 'new'}
-        <CharacterForm
-          editingCharacter={editingCharacter}
-          onSave={handleSave}
-          onCancel={cancelForm}
-        />
-      {/key}
+      <div bind:this={formRegion}>
+        {#key editingCharacter?.id ?? 'new'}
+          <CharacterForm
+            editingCharacter={editingCharacter}
+            onSave={handleSave}
+            onCancel={cancelForm}
+          />
+        {/key}
+      </div>
     {:else if library.status === 'failed'}
       <div
         role="alert"
