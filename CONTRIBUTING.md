@@ -4,8 +4,6 @@ Thanks for taking the time to contribute. This document describes how to set up
 the project, what to check before you open a pull request, and the conventions
 this repository follows.
 
-By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
 ## Ways to contribute
 
 - **Report a bug** with the [bug report template](https://github.com/SairaDev02/sillytavern-vault/issues/new?template=bug_report.yml).
