@@ -250,8 +250,7 @@ six supported Node and npm combinations. Run them before you open a pull request
 
 ## Contributing
 
-Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first, and
-follow the [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first.
 
 - Report bugs and request features through the [issue templates](https://github.com/SairaDev02/sillytavern-vault/issues/new/choose).
 - Report security problems privately as described in [`SECURITY.md`](SECURITY.md).
