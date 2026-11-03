@@ -24,3 +24,7 @@ Thumbs.db
 # Agent tooling config (remove this line to track .pi/)
 .pi/
 "*-output.txt"  
+
+# Local agent instructions (Pi and Claude Code), kept out of the repo
+AGENTS.md
+CLAUDE.md
