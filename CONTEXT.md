@@ -15,3 +15,11 @@ _Avoid_: export, archive, snapshot
 **Restore**:
 Recreating Characters in a library from a Backup.
 _Avoid_: import, load, upload
+
+**Image download**:
+Handing one Character's image to the browser as a PNG file.
+_Avoid_: export, image export
+
+**Handoff**:
+The browser has accepted a file from the page. It does not mean the file was saved.
+_Avoid_: saved, completed, succeeded
