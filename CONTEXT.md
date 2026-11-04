@@ -23,3 +23,7 @@ _Avoid_: export, image export
 **Handoff**:
 The browser has accepted a file from the page. It does not mean the file was saved.
 _Avoid_: saved, completed, succeeded
+
+**Lightbox**:
+The view of one Character opened from the Gallery. It steps through the Gallery's current order.
+_Avoid_: detail view, modal
