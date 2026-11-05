@@ -381,7 +381,7 @@ export async function downloadCharacterImage(character: Character): Promise<void
 3. Other image types: draw the image on a canvas and export `image/png`.
 4. Create an object URL, click a temporary link, and release the URL after `OBJECT_URL_LIFETIME_MS`.
 
-`downloadBlob` is the one delivery path for both the image export and the Backup. It creates the object URL, appends a link, clicks it, removes the link, and revokes the URL after `OBJECT_URL_LIFETIME_MS`.
+`downloadBlob` is the one delivery path for both the Image download and the Backup. It creates the object URL, appends a link, clicks it, removes the link, and revokes the URL after `OBJECT_URL_LIFETIME_MS`.
 
 The link click hands the request to the browser; it does not confirm that the browser or operating system saved a file. Do not release the object URL immediately. The browser reads the blob after the click returns, so an immediate release can cancel the download.
 
@@ -752,7 +752,8 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 |---|---|
 | `tests/db.test.ts` | Open, add, replace, delete, delete many, read, the failure path, pre-commit aborts for every write helper, and the bulk helper writing one transaction. |
 | `tests/id.test.ts` | Uniqueness and the two id paths. |
-| `tests/download.test.ts` | The data URL parser, the blob conversion, and the file name rules. |
+| `tests/download.test.ts` | The data URL parser and the file name rules. |
+| `tests/download-character-image.test.ts` | The Image download operation: each source path from its data URL, PNG byte identity, the JPEG canvas request and the blob it hands off, the file name, and every preparation failure with no handoff. |
 | `tests/gallery-utils.test.ts` | Search and sort, including the edge cases. |
 | `tests/gallery-scroll.test.ts` | Paging with a fake `IntersectionObserver`, mounted on the real components. |
 | `tests/gallery-empty-state.test.ts` | The mounted Gallery: genuine empty library versus no matches, Clear search focus in browse and selection modes, and the Cancel fallback. |
@@ -775,6 +776,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 Helpers:
 
 - `tests/fixtures.ts` holds `PNG_1X1`, `makeCharacter` / `makeCharacters`, `makeFile`, and `deferred`.
+- `tests/download-handoff.ts` installs the object URL and link-click stubs both download tests need, and returns the recorders they assert on with the `restore` to call in `afterEach`.
 - `tests/GalleryHarness.svelte` mounts `Gallery` and exposes `setCharacters`, so a test can change the list the way `App` does.
 - `tests/LightboxHarness.svelte` mounts `Lightbox` with a replaceable Character list and a chosen open Character, so a test can replace a record under the same id.
 - `tests/character-library.test.ts` constructs `CharacterLibrary` with real storage helpers pointed at a unique database per test, and controls measurement, identity, the clock, and held writes.
@@ -824,7 +826,7 @@ Notes:
 - Native keyboard behavior, such as the Tab order and Space on a checkbox, and any screen-reader announcement. A DOM assertion about focus or markup is not evidence of either.
 - Rendered hover motion, including the two reduced-motion lifts on Add Character and Delete Selected. jsdom never applies `@media (prefers-reduced-motion: reduce)`, and the compiled Tailwind utilities sit in `@layer utilities`, which jsdom drops. A class-name assertion therefore cannot show whether a control moves. Rendered hover motion is browser-only evidence: the browser check covers the two lifted actions, and `npm test` does not.
 - The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
-- The canvas path of `downloadCharacterImage`, because jsdom has no canvas.
+- Real image decoding and PNG encoding in `downloadCharacterImage`. The stubbed `Image` and canvas cover the orchestration and every failure path, but the browser's own decode and encode stay browser-only.
 - The performance of the gallery with a large library.
 - The missing-target message on the mounted page. The page cannot delete a record behind its own open form, and multi-tab changes are out of scope, so the message is witnessed at the form seam instead. The page's passthrough of a real rejection is witnessed by the write-failure test.
 - The native file chooser and the native confirmation dialog. jsdom has no file chooser, and the section tests stub `confirm`, so they assert the requested outcome and not the dialog.
@@ -903,6 +905,18 @@ A recheck ran in headless Microsoft Edge 156.0.4314.50 on Windows, at 1280 by 72
 - The keyboard reached **Create Backup**, the file input, and **Try again**, and Enter on the input opened the browser's own file chooser. The accessibility tree showed the busy flag, the polite status line, and the alert. The storage line reported the answer that browser gave.
 
 Its limits: the run was headless, one desktop viewport, and the confirmation dialog and the file chooser were intercepted by the driver. It confirms the download event and the bytes the driver saved, not a file that the browser or the operating system wrote. A Restore report proves what the library committed, not that an image will display. Android, Firefox, Safari, physical touch, and real screen-reader sessions were not tested, and nothing here supports a WCAG or assistive-technology conformance statement.
+
+### Browser recheck for Image download
+
+A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a device pixel ratio of 1, driven through `playwright-cli` against the production build from revision `b72da9d`, served with `vite preview` on port 4390. Three Characters were seeded through the page's own IndexedDB API, with images encoded in the page by canvas: a 300 by 200 PNG, a 320 by 180 JPEG named `JPEG: Card?`, and a 300 by 180 WebP. Each download was requested from its card's Download control, and the driver saved the file the browser handed over; the saved bytes were then compared with the stored data URLs. The check confirmed:
+
+- All three delivered files begin with the eight-byte PNG signature, `89 50 4E 47 0D 0A 1A 0A`, including the JPEG and WebP sources.
+- The delivered PNG carries the source dimensions in its `IHDR`: 300 by 200 from the PNG, 320 by 180 from the JPEG, and 300 by 180 from the WebP. The decoded images on the cards reported the same sizes, and the page console stayed empty.
+- The PNG card's file is byte-identical to its stored payload: 3529 bytes on both sides, with the same SHA-256.
+- The JPEG and WebP files are re-encodes, not copies: 12608 bytes from a 3421-byte JPEG payload and 9546 bytes from a 1730-byte WebP payload.
+- The suggested file names were `PNG Card.png`, `JPEG Card.png`, and `WebP Card.png`, so the JPEG card's name was sanitized.
+
+This is a manual check, not part of `npm test`. Its limits: the jsdom tests replace `Image` and the canvas with stubs, so they establish the orchestration only — that a PNG source is copied, that a conversion is requested at the natural size as `image/png`, and that each preparation failure stops before the handoff — while the browser's own decode and encode are established only by this check. Firefox and Safari were unchecked, as were Android, another viewport, device pixel ratio, browser version, and encode quality. The sources were synthetic canvas encodings at one quality setting, not files produced by other tools. The driver observed a download event and saved the bytes it received; a download event is a Handoff, and nothing here shows that the browser or the operating system wrote a file to disk. A failure inside the browser's own decode or encode was not exercised. Re-run the check when the Image download path, its canvas conversion, or the delivery link changes.
 
 ## 14. Verification and Build
 
@@ -1069,7 +1083,7 @@ The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
 A stable release covers three areas.
 
 - **Character library access.** A valid existing Character library stays accessible after a normal upgrade on the same origin. The application causes no data loss in that upgrade. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
-- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image export.
+- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image download.
 - **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
 
 The data promise has limits. The [README](../README.md#the-limits-of-the-promise) gives the four excluded cases and states that they do not excuse loss caused by the application's own upgrade logic.
