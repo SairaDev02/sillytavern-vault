@@ -906,6 +906,18 @@ A recheck ran in headless Microsoft Edge 156.0.4314.50 on Windows, at 1280 by 72
 
 Its limits: the run was headless, one desktop viewport, and the confirmation dialog and the file chooser were intercepted by the driver. It confirms the download event and the bytes the driver saved, not a file that the browser or the operating system wrote. A Restore report proves what the library committed, not that an image will display. Android, Firefox, Safari, physical touch, and real screen-reader sessions were not tested, and nothing here supports a WCAG or assistive-technology conformance statement.
 
+### Browser recheck for Image download
+
+A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a device pixel ratio of 1, driven through `playwright-cli` against the production build from revision `b72da9d`, served with `vite preview` on port 4390. Three Characters were seeded through the page's own IndexedDB API, with images encoded in the page by canvas: a 300 by 200 PNG, a 320 by 180 JPEG named `JPEG: Card?`, and a 300 by 180 WebP. Each download was requested from its card's Download control, and the driver saved the file the browser handed over; the saved bytes were then compared with the stored data URLs. The check confirmed:
+
+- All three delivered files begin with the eight-byte PNG signature, `89 50 4E 47 0D 0A 1A 0A`, including the JPEG and WebP sources.
+- The delivered PNG carries the source dimensions in its `IHDR`: 300 by 200 from the PNG, 320 by 180 from the JPEG, and 300 by 180 from the WebP. The decoded images on the cards reported the same sizes, and the page console stayed empty.
+- The PNG card's file is byte-identical to its stored payload: 3529 bytes on both sides, with the same SHA-256.
+- The JPEG and WebP files are re-encodes, not copies: 12608 bytes from a 3421-byte JPEG payload and 9546 bytes from a 1730-byte WebP payload.
+- The suggested file names were `PNG Card.png`, `JPEG Card.png`, and `WebP Card.png`, so the JPEG card's name was sanitized.
+
+This is a manual check, not part of `npm test`. Its limits: the jsdom tests replace `Image` and the canvas with stubs, so they establish the orchestration only — that a PNG source is copied, that a conversion is requested at the natural size as `image/png`, and that each preparation failure stops before the handoff — while the browser's own decode and encode are established only by this check. Firefox and Safari were unchecked, as were Android, another viewport, device pixel ratio, browser version, and encode quality. The sources were synthetic canvas encodings at one quality setting, not files produced by other tools. The driver observed a download event and saved the bytes it received; a download event is a Handoff, and nothing here shows that the browser or the operating system wrote a file to disk. A failure inside the browser's own decode or encode was not exercised. Re-run the check when the Image download path, its canvas conversion, or the delivery link changes.
+
 ## 14. Verification and Build
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
