@@ -828,7 +828,7 @@ Notes:
 - Rendered color contrast and the visibility of the focus indicator. jsdom paints nothing, so measure the built page in a desktop Chrome or Edge session. See sections 11 and 12.
 - Native keyboard behavior, such as the Tab order and Space on a checkbox, and any screen-reader announcement. A DOM assertion about focus or markup is not evidence of either.
 - Rendered hover motion, including the two reduced-motion lifts on Add Character and Delete Selected. jsdom never applies `@media (prefers-reduced-motion: reduce)`, and the compiled Tailwind utilities sit in `@layer utilities`, which jsdom drops. A class-name assertion therefore cannot show whether a control moves. Rendered hover motion is browser-only evidence: the browser check covers the two lifted actions, and `npm test` does not.
-- The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
+- The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in. The browser check for Lightbox navigation covers the Escape close and the focus return; it does not test the focus trap.
 - Real image decoding and PNG encoding in `downloadCharacterImage`. The stubbed `Image` and canvas cover the orchestration and every failure path, but the browser's own decode and encode stay browser-only.
 - The performance of the gallery with a large library.
 - The missing-target message on the mounted page. The page cannot delete a record behind its own open form, and multi-tab changes are out of scope, so the message is witnessed at the form seam instead. The page's passthrough of a real rejection is witnessed by the write-failure test.
@@ -921,6 +921,20 @@ A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a
 - The suggested file names were `PNG Card.png`, `JPEG Card.png`, and `WebP Card.png`, so the JPEG card's name was sanitized.
 
 This is a manual check, not part of `npm test`. Its limits: the jsdom tests replace `Image` and the canvas with stubs, so they establish the orchestration only — that a PNG source is copied, that a conversion is requested at the natural size as `image/png`, and that each preparation failure stops before the handoff — while the browser's own decode and encode are established only by this check. Firefox and Safari were unchecked, as were Android, another viewport, device pixel ratio, browser version, and encode quality. The sources were synthetic canvas encodings at one quality setting, not files produced by other tools. The driver observed a download event and saved the bytes it received; a download event is a Handoff, and nothing here shows that the browser or the operating system wrote a file to disk. A failure inside the browser's own decode or encode was not exercised. Re-run the check when the Image download path, its canvas conversion, or the delivery link changes.
+
+### Browser check for Lightbox navigation
+
+A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a device pixel ratio of 1, driven through `playwright-cli` against the production build from revision `fe3743a`, served with `vite preview` on port 4392. Thirty-four Characters were seeded through the page's own IndexedDB API, thirty named `Card 01` to `Card 30` and four named `Other 01` to `Other 04`. The search field was set to `Card`, which matched thirty and rendered the first page of twenty-four. The check confirmed:
+
+- The dialog opened on `Card 30` with the counter at `1 / 30` and focus inside the dialog.
+- Arrow Right moved to `Card 29` and the counter to `2 / 30`. The Previous control returned to `Card 30` and `1 / 30`.
+- Twenty-four Arrow Right presses reached `Card 06` at `25 / 30` while only twenty-four cards were rendered, so the arrows followed the whole search result, not the loaded page.
+- Escape closed the dialog and focus returned to the opening card, the button whose `data-character-id` was `card-30`.
+- The page console stayed empty, with no errors and no warnings.
+
+One behaviour the check met, recorded as an observation and not as a claim about accessibility: clicking the Previous control at the second result lands on the first, disables that control, and Chrome then drops focus to the page body, so an arrow key pressed next does nothing until focus returns inside the dialog. The check focused the dialog's Close control before the arrow steps, the way a keyboard user would already be inside it. This mouse-then-keyboard edge is not covered by the suite.
+
+This is a manual check, not part of `npm test`. Its limits: the run was headless Chromium only, at one viewport and device pixel ratio; Firefox, Safari, Android, physical touch, and real screen-reader sessions were not tested. The jsdom dialog is a shim, so the focus trap, the Tab order, and the browser's own Escape handling inside the dialog are established only here. The records were synthetic seeds, and the driver sent the keys, so operating-system key repeat and assistive technology were not exercised. The check covers the main success path only; the two deferred cases in section 17 stay untested by design. Re-run the check when the list the dialog receives, its counter, the arrow handling, or the close path changes. Nothing here supports a WCAG or assistive-technology conformance statement.
 
 ## 14. Verification and Build
 
