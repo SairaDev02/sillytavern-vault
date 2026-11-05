@@ -51,7 +51,7 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `src/persistent-storage.svelte.ts` | `PersistentStorage` class: the page-owned eviction-protection answer, one request, the user-initiated retry | Storage-protection line |
 | `src/selected-image.svelte.ts` | `SelectedImage` class: choice ordering, image/dimension pairing, readiness, discard, obsolete-result suppression | Character form image behavior |
 | `src/gallery-utils.ts` | `PAGE_SIZE`, `SortMode`, filter/sort | Search, sort, page size |
-| `src/download.ts` | Data URL parse, PNG conversion, filename, download | Export path |
+| `src/download.ts` | Data URL parse, PNG conversion, filename, download | Download path |
 | `src/style.css` | Tailwind import + `@theme` color tokens | Colors, theme |
 | `src/components/Gallery.svelte` | View state: search, sort, selection, paging, lightbox state, the one-shot return request | Any gallery behavior |
 | `src/components/GalleryToolbar.svelte` | Search input, sort select, select-mode controls | Toolbar UI |
@@ -66,6 +66,8 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `tests/restore-section.test.ts` | The mounted Restore: counts, confirmation, cancel, refusals, additive writes | Restore UI |
 | `tests/storage-protection.test.ts` | The protection owner and its line, plus a denial that gates nothing | Storage-protection behavior |
 | `tests/download-blob.test.ts` | The one Blob delivery path and the delayed release of the object URL | Download delivery |
+| `tests/download-character-image.test.ts` | The Image download operation: each source path from its data URL, the PNG byte identity, the canvas request, the filename, and every preparation failure that hands nothing off | Image download behavior |
+| `tests/download-handoff.ts` | The shared object URL and link-click stubs, with their undo, for the two download tests | Any change to the delivery path or its stubs |
 | `tests/*` | Vitest suites + helpers | Any behavior change |
 | `docs/adr/0002-character-library-backup-and-restore.md` | The accepted Backup and Restore decision | Before changing the file format or the Restore rule |
 | `docs/verification/72-backup-restore-browser-evidence.md` | The real-browser and large-library record for Backup and Restore, with its limits | Before claiming a browser result |
@@ -269,7 +271,7 @@ export function downloadCharacterImage(character: Character): Promise<void>;
 
 `sanitizeFilename` returns `'character'` for an empty result or a reserved Windows base name (`con prn aux nul com1-9 lpt1-9`); it strips `\ / : * ? " < > |`, control chars, and trailing dots/spaces.
 
-`downloadBlob` is the one delivery path for the image export and the Backup: it clicks a temporary link and revokes the object URL after `OBJECT_URL_LIFETIME_MS`. A click is a handoff, not a saved file.
+`downloadBlob` is the one delivery path for the Image download and the Backup: it clicks a temporary link and revokes the object URL after `OBJECT_URL_LIFETIME_MS`. A click is a handoff, not a saved file.
 
 `parseBackup` rejects the whole file with a `BackupFileError` for `not-json-lines`, `header`, `format`, `version`, `duplicate-id`, or `line-too-long`, before it returns one record. A line that is not a Character is listed in `unreadable` with its 1-based line number and its first failed rule. Version 1 is the only version it reads. Two lines that carry one string `id` are a `duplicate-id` failure even when one of them fails the record matrix, because such a line still names the Character it claims to be.
 
@@ -360,7 +362,7 @@ MUST hold after any change.
 | Card layout or card hover UI | `src/components/MasonryItem.svelte`, `src/components/MasonryGrid.svelte` | `tests/gallery-scroll.test.ts` |
 | Column layout or animation | `src/components/MasonryGrid.svelte` | — |
 | Lightbox behavior or its focus restore | `src/components/Lightbox.svelte` | `tests/app.test.ts` |
-| Download or filename | `src/download.ts` | `tests/download.test.ts` |
+| Download or filename | `src/download.ts` | `tests/download.test.ts`, `tests/download-character-image.test.ts` |
 | Selected-image preparation or form gating | `src/selected-image.svelte.ts`, `src/components/CharacterForm.svelte` | `tests/selected-image.test.ts`, `tests/character-form.test.ts` |
 | Form focus entry, save-start handover, or return handover | `src/components/CharacterForm.svelte`, `src/App.svelte`, `src/components/Gallery.svelte` | `tests/character-form.test.ts`, `tests/app.test.ts` |
 | Theme color | `src/style.css` (`@theme` tokens) | — |
@@ -371,7 +373,7 @@ MUST hold after any change.
 | The Restore rule, its counts, or the settle barrier | `src/character-library.svelte.ts` | `tests/character-library.test.ts` |
 | The Backup or Restore view, its counts, or its feedback | `src/components/BackupSection.svelte` | `tests/backup-section.test.ts`, `tests/restore-section.test.ts` |
 | The storage-protection answer or its line | `src/persistent-storage.svelte.ts`, `src/components/StorageProtection.svelte` | `tests/storage-protection.test.ts` |
-| The delivery of a downloaded Blob | `src/download.ts` | `tests/download-blob.test.ts`, `tests/download.test.ts` |
+| The delivery of a downloaded Blob | `src/download.ts` | `tests/download-blob.test.ts`, `tests/download.test.ts`, `tests/download-character-image.test.ts` |
 
 ---
 
@@ -384,6 +386,7 @@ Environment: Vitest with `environment: 'node'`. A DOM test needs the first line 
 Helpers available:
 
 - `tests/fixtures.ts`: `PNG_1X1`, `makeCharacter(index, overrides?)`, `makeCharacters(count, startIndex?)`.
+- `tests/download-handoff.ts`: `installDownloadHandoff()` stubs `URL.createObjectURL`, `URL.revokeObjectURL`, and `HTMLAnchorElement.prototype.click` for one test. It returns the two mocks, the clicked links, and `restore()`. Use it for any test that reaches the delivery path.
 - `tests/GalleryHarness.svelte`: mounts `Gallery`, exposes `setCharacters(next)`.
 - `tests/LightboxHarness.svelte`: mounts `Lightbox` with a replaceable list and a chosen open Character.
 - `tests/selected-image.test.ts`: controlled `readFile` and `measure` promises for the preparation module.

@@ -4,7 +4,7 @@ A local-first character card gallery that runs entirely in the browser.
 
 Add a character with a name, a description, and an image. The app stores the card
 in IndexedDB and shows it in a responsive masonry gallery with search, sorting, a
-detail view, and image export. There is no backend, no account, and no upload:
+detail view, and image download. There is no backend, no account, and no upload:
 your cards never leave your machine.
 
 [![CI](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml)
@@ -24,8 +24,9 @@ your cards never leave your machine.
 - **Lightbox detail view** — full-size image, description, keyboard navigation
   with Arrow Left and Arrow Right, and Escape to close.
 - **Batch delete** — a select mode that removes many cards in one transaction.
-- **Image export** — download a card's image as a PNG. JPEG and WebP sources are
-  converted on a canvas; PNG sources are passed through untouched.
+- **Image download** — a card's image is handed to the browser as a PNG file.
+  JPEG and WebP sources are converted on a canvas; PNG sources are passed
+  through untouched.
 - **Accessible by default** — real `<dialog>` semantics, visible focus rings,
   keyboard operability, and animation that respects `prefers-reduced-motion`.
 - **No runtime dependencies** — the shipped bundle is application code plus
@@ -122,8 +123,9 @@ Because the app is client-side only:
   `character-gallery-backup-2026-10-31.jsonl`. A Character too large for the
   Backup reader stops the Backup before the file is handed over, and the message
   names that Character.
-- The download button exports one image. The Backup is the copy of the whole
-  library. Your browser or operating system chooses where to save the file.
+- The download button hands one image to the browser. The Backup is the copy of
+  the whole library. Your browser or operating system chooses where to save the
+  file.
 
 ## Releases and compatibility
 
@@ -160,7 +162,7 @@ The public contract of a stable release has three parts.
   data loss caused by the application, after a normal upgrade on the same
   origin.
 - **The core capabilities.** These are saving and managing Characters, browsing,
-  searching and sorting, the detail view, batch deletion, and PNG image export,
+  searching and sorting, the detail view, batch deletion, and PNG image download,
   as the [features](#features) describe them. A compatible release does not
   remove a capability from this list.
 - **The supported toolchain.** A release's contract covers the Node and npm
@@ -206,7 +208,7 @@ src/
   library-error.ts           The error kinds a library mutation can refuse
   db.ts                      IndexedDB open plus CRUD helpers
   gallery-utils.ts           Filter, sort, and page-size rules
-  download.ts                Data URL parsing and image export
+  download.ts                Data URL parsing and image download
   image.ts                   Aspect-ratio measurement
   selected-image.svelte.ts   Selected-image preparation for the character form
   id.ts                      Card ID generation
