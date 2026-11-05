@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The Character Gallery is a browser-only application. It stores character cards in IndexedDB. A card holds a name, a description, and an image. The app shows the cards in a masonry gallery, with search, sort, batch delete, and a detail view. The app can export one image as a PNG file. It can also write the whole library to one Backup file and restore that file into the library.
+The Character Gallery is a browser-only application. It stores character cards in IndexedDB. A card holds a name, a description, and an image. The app shows the cards in a masonry gallery, with search, sort, batch delete, and a Lightbox. The app can download one image as a PNG file. It can also write the whole library to one Backup file and restore that file into the library.
 
 The app has no backend. It has no runtime dependencies. All entries in `devDependencies` are build tools or test tools.
 
@@ -677,6 +677,8 @@ Props: `protection`, a `PersistentStorage` owner. The component renders the labe
 
 **Lightbox navigation.** The arrows report the neighboring Character id through `onSelect`, and `Gallery` stores it in `selectedId`. The derived `selectedCharacter` then resolves to that record, so the dialog stays open and shows it.
 
+`Gallery` passes its current filtered and sorted list to the dialog, not the rendered page. The arrows and the Previous and Next buttons therefore follow the search and the sort that the Gallery shows now. Next reaches a Character that no card has rendered, and close still returns focus to the card that opened the dialog. The counter states the position in that same result, such as `3 / 4` for four search matches. A publish that adds or replaces Characters keeps the dialog on the same Character, because the id resolves against the new list. The counter and both neighbors then follow the new order. Section 17 records the two cases that this behavior leaves deferred.
+
 **Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
 **Backup.** The person presses **Create Backup**. The section waits for `library.settled()`, so a Character saved a moment earlier is in the file, then snapshots the canonical list and builds one line per Character as separate parts. Each serialized Character is checked against the reader's line bound first: one over it stops the Backup with an alert that names that Character, and nothing is handed to the browser. Otherwise the section names the file with the local date and hands the Blob to `downloadBlob`. The status reports a handoff to the browser. The app cannot observe whether a file was saved, so it never reports one.
@@ -759,6 +761,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-empty-state.test.ts` | The mounted Gallery: genuine empty library versus no matches, Clear search focus in browse and selection modes, and the Cancel fallback. |
 | `tests/gallery-card-image.test.ts` | The mounted card: the reserved frame from usable and unusable pairs, the failure fallback and its description, the preserved actions, and source replacement. |
 | `tests/lightbox-image.test.ts` | The mounted dialog: the reserved frame, polite status, the failure following the displayed Character and source, and late events from a replaced source. |
+| `tests/lightbox-navigation.test.ts` | The mounted Gallery's lightbox navigation: the buttons and the arrow keys stepping through a search result, the counter over that result, a step to a Character past the rendered page, the focus return on close, and a publish that keeps the same Character with the new neighbors. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Also the settle barrier, the additive and idempotent Restore with its applied counts, the collision rule `planRestore` marking the same counts the write applies, and the size repair of a restored record. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
 | `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. Also the form focus lifecycle: entry focus for both origins, the lightbox close-timing handover, save-start, validation and rejected-save outcomes, and the one-time return handover for Add and for an Edit target that is rendered, duplicated by name, or not rendered at all. The handover resolves the card by its identity attribute, and it also runs when nothing is focused. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
@@ -825,13 +828,14 @@ Notes:
 - Rendered color contrast and the visibility of the focus indicator. jsdom paints nothing, so measure the built page in a desktop Chrome or Edge session. See sections 11 and 12.
 - Native keyboard behavior, such as the Tab order and Space on a checkbox, and any screen-reader announcement. A DOM assertion about focus or markup is not evidence of either.
 - Rendered hover motion, including the two reduced-motion lifts on Add Character and Delete Selected. jsdom never applies `@media (prefers-reduced-motion: reduce)`, and the compiled Tailwind utilities sit in `@layer utilities`, which jsdom drops. A class-name assertion therefore cannot show whether a control moves. Rendered hover motion is browser-only evidence: the browser check covers the two lifted actions, and `npm test` does not.
-- The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in.
+- The focus trap of the dialog and the Escape key, because the jsdom dialog is a stand-in. The browser check for Lightbox navigation covers the Escape close and the focus return; it does not test the focus trap.
 - Real image decoding and PNG encoding in `downloadCharacterImage`. The stubbed `Image` and canvas cover the orchestration and every failure path, but the browser's own decode and encode stay browser-only.
 - The performance of the gallery with a large library.
 - The missing-target message on the mounted page. The page cannot delete a record behind its own open form, and multi-tab changes are out of scope, so the message is witnessed at the form seam instead. The page's passthrough of a real rejection is witnessed by the write-failure test.
 - The native file chooser and the native confirmation dialog. jsdom has no file chooser, and the section tests stub `confirm`, so they assert the requested outcome and not the dialog.
 - Whether a Backup that was handed to the browser reached a file. The section tests assert the Blob and the file name at the delivery seam.
 - The lightbox's Edit handover cannot be isolated in the jsdom suite, because the destination tears the Gallery down and the opener is disconnected anyway. The mounted page test observes the outcome — the heading keeps focus across the close event — and the real-browser check covers the same flow.
+- The two lightbox cases that section 17 defers: a record removed behind its open dialog, and an open Character outside a new result. Neither is reachable from one tab, so the suite pins neither.
 
 ### Browser smoke check for selected-image preparation
 
@@ -918,6 +922,20 @@ A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a
 
 This is a manual check, not part of `npm test`. Its limits: the jsdom tests replace `Image` and the canvas with stubs, so they establish the orchestration only — that a PNG source is copied, that a conversion is requested at the natural size as `image/png`, and that each preparation failure stops before the handoff — while the browser's own decode and encode are established only by this check. Firefox and Safari were unchecked, as were Android, another viewport, device pixel ratio, browser version, and encode quality. The sources were synthetic canvas encodings at one quality setting, not files produced by other tools. The driver observed a download event and saved the bytes it received; a download event is a Handoff, and nothing here shows that the browser or the operating system wrote a file to disk. A failure inside the browser's own decode or encode was not exercised. Re-run the check when the Image download path, its canvas conversion, or the delivery link changes.
 
+### Browser check for Lightbox navigation
+
+A check ran in headless Chromium 156.0.8078.80 on Windows, at 1280 by 720 with a device pixel ratio of 1, driven through `playwright-cli` against the production build from revision `fe3743a`, served with `vite preview` on port 4392. Thirty-four Characters were seeded through the page's own IndexedDB API, thirty named `Card 01` to `Card 30` and four named `Other 01` to `Other 04`. The search field was set to `Card`, which matched thirty and rendered the first page of twenty-four. The check confirmed:
+
+- The dialog opened on `Card 30` with the counter at `1 / 30` and focus inside the dialog.
+- Arrow Right moved to `Card 29` and the counter to `2 / 30`. The Previous control returned to `Card 30` and `1 / 30`.
+- Twenty-four Arrow Right presses reached `Card 06` at `25 / 30` while only twenty-four cards were rendered, so the arrows followed the whole search result, not the loaded page.
+- Escape closed the dialog and focus returned to the opening card, the button whose `data-character-id` was `card-30`.
+- The page console stayed empty, with no errors and no warnings.
+
+One behaviour the check met, recorded as an observation and not as a claim about accessibility: clicking the Previous control at the second result lands on the first, disables that control, and Chrome then drops focus to the page body, so an arrow key pressed next does nothing until focus returns inside the dialog. The check focused the dialog's Close control before the arrow steps, the way a keyboard user would already be inside it. This mouse-then-keyboard edge is not covered by the suite.
+
+This is a manual check, not part of `npm test`. Its limits: the run was headless Chromium only, at one viewport and device pixel ratio; Firefox, Safari, Android, physical touch, and real screen-reader sessions were not tested. The jsdom dialog is a shim, so the focus trap, the Tab order, and the browser's own Escape handling inside the dialog are established only here. The records were synthetic seeds, and the driver sent the keys, so operating-system key repeat and assistive technology were not exercised. The check covers the main success path only; the two deferred cases in section 17 stay untested by design. Re-run the check when the list the dialog receives, its counter, the arrow handling, or the close path changes. Nothing here supports a WCAG or assistive-technology conformance statement.
+
 ## 14. Verification and Build
 
 `npm run check` uses `tsconfig.json`, which includes `src` and `tests`. The check covers the components, the modules, and the test files. Keep the result at zero errors and zero warnings.
@@ -993,6 +1011,8 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 - A record whose stored size pair is unusable is displayed with the 4:3 fallback and is left as it is. The background repair only treats a record with no dimensions as unmeasured, so an unusable pair survives until an edit replaces it. The picture is then drawn at 4:3 in any window, whatever its real shape.
 - Download feedback covers a failure the application can detect while preparing the file. A handoff to the browser is not proof that the browser or the operating system saved it, so the application never reports a saved file, and a failure that happens after the handoff is invisible to it.
 - The lightbox does not close on a click on the backdrop. Escape and the close button work.
+- If an open record is removed while its dialog is open, `selectedId` is not cleared and focus does not return, so the lightbox could reopen if that id appears again. No single-tab path reaches this: the trigger would be a second tab or a remote deletion.
+- If an open Character falls outside a new result while the dialog is open, its content is shown, the counter is hidden, and Previous and Next are disabled. No path reaches this either, because the open Lightbox covers the search and the sort.
 - `Gallery` passes `animate={true}` to `MasonryGrid` as a literal, so the `animate` prop of that component is not reachable from the app today.
 - The list animation cost grows with the number of rendered cards. The default page size limits the effect.
 - A Backup moves a library between browser profiles and origins. It is this app's own format, not an interchange format: SillyTavern card files and other tools' files are not read, and other tools cannot read a Backup.
@@ -1083,7 +1103,7 @@ The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
 A stable release covers three areas.
 
 - **Character library access.** A valid existing Character library stays accessible after a normal upgrade on the same origin. The application causes no data loss in that upgrade. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
-- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image download.
+- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the Lightbox, batch deletion, and PNG image download.
 - **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
 
 The data promise has limits. The [README](../README.md#the-limits-of-the-promise) gives the four excluded cases and states that they do not excuse loss caused by the application's own upgrade logic.
