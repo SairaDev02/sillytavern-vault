@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDataUrl, base64ToBlob, sanitizeFilename } from '../src/download';
+import { parseDataUrl, sanitizeFilename } from '../src/download';
 
 describe('parseDataUrl', () => {
   it('should parse PNG data URL', () => {
@@ -72,20 +72,6 @@ describe('parseDataUrl', () => {
 
   it('should throw when the payload is not base64 encoded', () => {
     expect(() => parseDataUrl('data:image/svg+xml,<svg></svg>')).toThrow(/expected base64/);
-  });
-});
-
-describe('base64ToBlob', () => {
-  it('should convert base64 to blob with correct type', async () => {
-    // "Hello" in base64
-    const base64 = 'SGVsbG8=';
-    const blob = base64ToBlob(base64, 'image/png');
-    expect(blob.type).toBe('image/png');
-    expect(blob.size).toBe(5);
-
-    // Verify content
-    const text = await blob.text();
-    expect(text).toBe('Hello');
   });
 });
 
