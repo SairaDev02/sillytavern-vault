@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The Character Gallery is a browser-only application. It stores character cards in IndexedDB. A card holds a name, a description, and an image. The app shows the cards in a masonry gallery, with search, sort, batch delete, and a detail view. The app can export one image as a PNG file. It can also write the whole library to one Backup file and restore that file into the library.
+The Character Gallery is a browser-only application. It stores character cards in IndexedDB. A card holds a name, a description, and an image. The app shows the cards in a masonry gallery, with search, sort, batch delete, and a Lightbox. The app can download one image as a PNG file. It can also write the whole library to one Backup file and restore that file into the library.
 
 The app has no backend. It has no runtime dependencies. All entries in `devDependencies` are build tools or test tools.
 
@@ -677,6 +677,8 @@ Props: `protection`, a `PersistentStorage` owner. The component renders the labe
 
 **Lightbox navigation.** The arrows report the neighboring Character id through `onSelect`, and `Gallery` stores it in `selectedId`. The derived `selectedCharacter` then resolves to that record, so the dialog stays open and shows it.
 
+`Gallery` passes its current filtered and sorted list to the dialog, not the rendered page. The arrows and the Previous and Next buttons therefore follow the search and the sort that the Gallery shows now. Next reaches a Character that no card has rendered, and close still returns focus to the card that opened the dialog. The counter states the position in that same result, such as `3 / 4` for four search matches. A publish that adds or replaces Characters keeps the dialog on the same Character, because the id resolves against the new list. The counter and both neighbors then follow the new order. Section 17 records the two cases that this behavior leaves deferred.
+
 **Download.** The card button and the lightbox button ask the page to start an attempt; `DownloadAttempts` calls `downloadCharacterImage` and captures the Character's identity and name first. A rejected attempt is a detected preparation failure: it is logged and shown as one dismissible, polite notice naming that Character. A resolved attempt is only a handoff to the browser, so it is never shown as a saved file; it clears that Character's notice. Outcomes are ordered per Character, so a late completion cannot override a newer one, and one Character's outcome never stands in for another's. The notice lives in the page shell, so it survives the form opening and the Gallery going away, and it never moves focus or reopens a dialog. It has exactly one presentation: inside the open lightbox while that dialog is up, in the page content otherwise. `Gallery` reports the dialog state upward and carries the page's one snippet into the dialog, so the notice is never hidden behind the modal and never duplicated.
 
 **Backup.** The person presses **Create Backup**. The section waits for `library.settled()`, so a Character saved a moment earlier is in the file, then snapshots the canonical list and builds one line per Character as separate parts. Each serialized Character is checked against the reader's line bound first: one over it stops the Backup with an alert that names that Character, and nothing is handed to the browser. Otherwise the section names the file with the local date and hands the Blob to `downloadBlob`. The status reports a handoff to the browser. The app cannot observe whether a file was saved, so it never reports one.
@@ -759,6 +761,7 @@ The suite runs in the `node` environment. A test file that needs the DOM starts 
 | `tests/gallery-empty-state.test.ts` | The mounted Gallery: genuine empty library versus no matches, Clear search focus in browse and selection modes, and the Cancel fallback. |
 | `tests/gallery-card-image.test.ts` | The mounted card: the reserved frame from usable and unusable pairs, the failure fallback and its description, the preserved actions, and source replacement. |
 | `tests/lightbox-image.test.ts` | The mounted dialog: the reserved frame, polite status, the failure following the displayed Character and source, and late events from a replaced source. |
+| `tests/lightbox-navigation.test.ts` | The mounted Gallery's lightbox navigation: the buttons and the arrow keys stepping through a search result, the counter over that result, a step to a Character past the rendered page, the focus return on close, and a publish that keeps the same Character with the new neighbors. |
 | `tests/character-library.test.ts` | The library through its public interface: identity and creation time, size rules, start-up and Retry, ordering, delete outcomes, background repair, attempt bounding, and disposal. Also the settle barrier, the additive and idempotent Restore with its applied counts, the collision rule `planRestore` marking the same counts the write applies, and the size repair of a restored record. Storage is asserted through the real `db.ts` helpers against `fake-indexeddb`. |
 | `tests/app.test.ts` | The mounted page: load, add, edit, delete, recovery, batch-delete outcomes, selection semantics, status, focus transitions, and download feedback through the page-owned notice. Also the form focus lifecycle: entry focus for both origins, the lightbox close-timing handover, save-start, validation and rejected-save outcomes, and the one-time return handover for Add and for an Edit target that is rendered, duplicated by name, or not rendered at all. The handover resolves the card by its identity attribute, and it also runs when nothing is focused. |
 | `tests/gallery-labels.test.ts` | Visible search and sort labels, filtering, and sorting. |
@@ -832,6 +835,7 @@ Notes:
 - The native file chooser and the native confirmation dialog. jsdom has no file chooser, and the section tests stub `confirm`, so they assert the requested outcome and not the dialog.
 - Whether a Backup that was handed to the browser reached a file. The section tests assert the Blob and the file name at the delivery seam.
 - The lightbox's Edit handover cannot be isolated in the jsdom suite, because the destination tears the Gallery down and the opener is disconnected anyway. The mounted page test observes the outcome — the heading keeps focus across the close event — and the real-browser check covers the same flow.
+- The two lightbox cases that section 17 defers: a record removed behind its open dialog, and an open Character outside a new result. Neither is reachable from one tab, so the suite pins neither.
 
 ### Browser smoke check for selected-image preparation
 
@@ -993,6 +997,8 @@ Follow the recipe in section 13. Add the file to `tests/`. Name it `*.test.ts` f
 - A record whose stored size pair is unusable is displayed with the 4:3 fallback and is left as it is. The background repair only treats a record with no dimensions as unmeasured, so an unusable pair survives until an edit replaces it. The picture is then drawn at 4:3 in any window, whatever its real shape.
 - Download feedback covers a failure the application can detect while preparing the file. A handoff to the browser is not proof that the browser or the operating system saved it, so the application never reports a saved file, and a failure that happens after the handoff is invisible to it.
 - The lightbox does not close on a click on the backdrop. Escape and the close button work.
+- If an open record is removed while its dialog is open, `selectedId` is not cleared and focus does not return, so the lightbox could reopen if that id appears again. No single-tab path reaches this: the trigger would be a second tab or a remote deletion.
+- If an open Character falls outside a new result while the dialog is open, its content is shown, the counter is hidden, and Previous and Next are disabled. No path reaches this either, because the open Lightbox covers the search and the sort.
 - `Gallery` passes `animate={true}` to `MasonryGrid` as a literal, so the `animate` prop of that component is not reachable from the app today.
 - The list animation cost grows with the number of rendered cards. The default page size limits the effect.
 - A Backup moves a library between browser profiles and origins. It is this app's own format, not an interchange format: SillyTavern card files and other tools' files are not read, and other tools cannot read a Backup.
@@ -1083,7 +1089,7 @@ The project follows Semantic Versioning 2.0.0, as `CHANGELOG.md` states.
 A stable release covers three areas.
 
 - **Character library access.** A valid existing Character library stays accessible after a normal upgrade on the same origin. The application causes no data loss in that upgrade. The library in `src/character-library.svelte.ts` and the storage layer in `src/db.ts` implement this behavior.
-- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the detail view, batch deletion, and PNG image download.
+- **The documented core capabilities.** Saving and managing Characters, browsing, searching and sorting, the Lightbox, batch deletion, and PNG image download.
 - **The supported toolchain.** The Node and npm combinations that the release states as supported. See section 2 and the [README requirements](../README.md#requirements) for the current ranges.
 
 The data promise has limits. The [README](../README.md#the-limits-of-the-promise) gives the four excluded cases and states that they do not excuse loss caused by the application's own upgrade logic.

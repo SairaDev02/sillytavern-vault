@@ -57,7 +57,7 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `src/components/GalleryToolbar.svelte` | Search input, sort select, select-mode controls | Toolbar UI |
 | `src/components/MasonryGrid.svelte` | CSS columns, keyed list, flip/fade animation | Layout, animation |
 | `src/components/MasonryItem.svelte` | One card: image, hover label, download, checkbox | Card UI |
-| `src/components/Lightbox.svelte` | `<dialog>` detail view, keyboard + button nav, focus restore with the Edit handover exception | Detail view |
+| `src/components/Lightbox.svelte` | `<dialog>` Character view, keyboard + button nav, focus restore with the Edit handover exception | Lightbox behavior |
 | `src/components/CharacterForm.svelte` | Add/edit form, text fields, save gating and locking, entry and save-start focus | Form behavior |
 | `src/components/BackupSection.svelte` | The Backup and restore section below the Gallery: the two actions, counts, confirmation, and its own feedback | Backup or Restore behavior |
 | `src/components/StorageProtection.svelte` | The storage-protection line and **Try again** | Storage-protection UI |
@@ -68,6 +68,7 @@ There is no local linter or formatter: run the three commands above by hand. CI 
 | `tests/download-blob.test.ts` | The one Blob delivery path and the delayed release of the object URL | Download delivery |
 | `tests/download-character-image.test.ts` | The Image download operation: each source path from its data URL, the PNG byte identity, the canvas request, the filename, and every preparation failure that hands nothing off | Image download behavior |
 | `tests/download-handoff.ts` | The shared object URL and link-click stubs, with their undo, for the two download tests | Any change to the delivery path or its stubs |
+| `tests/lightbox-navigation.test.ts` | The mounted Gallery's lightbox navigation: the buttons and the arrow keys over the current search result, the counter, a step to a Character past the rendered page, the focus return on close, and the same Character kept across a publish | Lightbox navigation, the order the dialog receives, or its counter |
 | `tests/*` | Vitest suites + helpers | Any behavior change |
 | `docs/adr/0002-character-library-backup-and-restore.md` | The accepted Backup and Restore decision | Before changing the file format or the Restore rule |
 | `docs/verification/72-backup-restore-browser-evidence.md` | The real-browser and large-library record for Backup and Restore, with its limits | Before claiming a browser result |
@@ -361,7 +362,7 @@ MUST hold after any change.
 | Page size / paging | `src/gallery-utils.ts` (`PAGE_SIZE`), `src/components/Gallery.svelte` | `tests/gallery-scroll.test.ts` |
 | Card layout or card hover UI | `src/components/MasonryItem.svelte`, `src/components/MasonryGrid.svelte` | `tests/gallery-scroll.test.ts` |
 | Column layout or animation | `src/components/MasonryGrid.svelte` | — |
-| Lightbox behavior or its focus restore | `src/components/Lightbox.svelte` | `tests/app.test.ts` |
+| Lightbox behavior, its navigation order, or its focus restore | `src/components/Gallery.svelte` (the list the dialog receives), `src/components/Lightbox.svelte` | `tests/lightbox-navigation.test.ts`, `tests/app.test.ts` |
 | Download or filename | `src/download.ts` | `tests/download.test.ts`, `tests/download-character-image.test.ts` |
 | Selected-image preparation or form gating | `src/selected-image.svelte.ts`, `src/components/CharacterForm.svelte` | `tests/selected-image.test.ts`, `tests/character-form.test.ts` |
 | Form focus entry, save-start handover, or return handover | `src/components/CharacterForm.svelte`, `src/App.svelte`, `src/components/Gallery.svelte` | `tests/character-form.test.ts`, `tests/app.test.ts` |

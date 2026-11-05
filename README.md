@@ -4,7 +4,7 @@ A local-first character card gallery that runs entirely in the browser.
 
 Add a character with a name, a description, and an image. The app stores the card
 in IndexedDB and shows it in a responsive masonry gallery with search, sorting, a
-detail view, and image download. There is no backend, no account, and no upload:
+Lightbox, and image download. There is no backend, no account, and no upload:
 your cards never leave your machine.
 
 [![CI](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SairaDev02/sillytavern-vault/actions/workflows/ci.yml)
@@ -21,7 +21,7 @@ your cards never leave your machine.
 - **Sort** by newest, oldest, or name (numeric-aware, case-insensitive).
 - **Incremental rendering** — 24 cards at a time, with an `IntersectionObserver`
   sentinel that loads the next page as you scroll.
-- **Lightbox detail view** — full-size image, description, keyboard navigation
+- **Lightbox** — full-size image, description, keyboard navigation
   with Arrow Left and Arrow Right, and Escape to close.
 - **Batch delete** — a select mode that removes many cards in one transaction.
 - **Image download** — a card's image is handed to the browser as a PNG file.
@@ -162,7 +162,7 @@ The public contract of a stable release has three parts.
   data loss caused by the application, after a normal upgrade on the same
   origin.
 - **The core capabilities.** These are saving and managing Characters, browsing,
-  searching and sorting, the detail view, batch deletion, and PNG image download,
+  searching and sorting, the Lightbox, batch deletion, and PNG image download,
   as the [features](#features) describe them. A compatible release does not
   remove a capability from this list.
 - **The supported toolchain.** A release's contract covers the Node and npm
@@ -218,7 +218,7 @@ src/
     GalleryToolbar.svelte    Search, sort, select mode
     MasonryGrid.svelte       CSS-columns masonry layout
     MasonryItem.svelte       One card
-    Lightbox.svelte          Detail view
+    Lightbox.svelte          Full-size Character view
     CharacterForm.svelte     Add and edit form
 tests/                       Vitest suites, fixtures, and a jsdom harness
 docs/                        Developer wiki, layout design, writing rules
